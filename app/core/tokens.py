@@ -1,0 +1,194 @@
+"""设计 token：所有 UI 视觉常量的单一来源。
+
+四类：
+- Colors：色板（背景/边框/文本/告警/状态）
+- Fonts：字体族
+- FontSizes：字号（pt）
+- Sizing：圆角、边框宽度、最小尺寸
+
+所有 dataclass `frozen=True`，运行时不可变。QSS 模板通过 f-string 引用。
+"""
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Colors:
+    # ---- 背景：深色系（主窗口/单元/面板） --------------------------------
+    BG_DEEP: str = "#04060d"
+    BG_BASE: str = "#0a0f1c"
+    BG_MID: str = "#060a18"
+    BG_DEEP_GRAD_INNER: str = "#0a1530"
+    BG_DEEP_GRAD_OUTER: str = "#02040a"
+    BG_RIGHT_PANEL: str = "#050810"
+    BG_CELL_TOP: str = "#142850"
+    BG_CELL_BOTTOM: str = "#0a1530"
+    BG_CELL_ALERT_TOP: str = "#2a0a18"
+    BG_CELL_ALERT_BOTTOM: str = "#1a0810"
+    BG_CELL_NO_DATA_TOP: str = "#1a1a1a"     # 灰黑：上下渐变
+    BG_CELL_NO_DATA_BOTTOM: str = "#0a0a0a"
+    BG_BTN_TOP: str = "#131c33"
+    BG_BTN_BOTTOM: str = "#0a0f1c"
+    BG_BTN_HOVER_TOP: str = "#1a2542"
+    BG_BTN_HOVER_BOTTOM: str = "#0f1729"
+    BG_TITLE_BAR: str = "#0a0f1c"
+
+    # ---- 背景：浅色系（数据网格/数据点，参考图二） -------------------------
+    BG_DATAGRID: str = "#cfe2f3"          # 浅蓝
+    BG_DATAGRID_NO_DATA: str = "#161616"   # 无数据态深灰
+    BG_DATAPOINT: str = "#ffffff"          # 白
+    BG_DATAPOINT_ALERT: str = "#ffe0e6"    # 浅红
+
+    # ---- 霓虹强调色（径向渐变光晕） ----------------------------------------
+    GLOW_CYAN: str = "rgba(0, 191, 255, 30)"
+    GLOW_PURPLE: str = "rgba(120, 80, 200, 30)"
+
+    # ---- 边框 -------------------------------------------------------------
+    BORDER_PRIMARY: str = "#00bfff"        # 亮蓝青
+    BORDER_HOVER: str = "#00ffff"          # 亮青
+    BORDER_DANGER: str = "#ff3b5c"         # 红
+    BORDER_OFFLINE: str = "#3d4a66"
+    BORDER_DARK_BLUE: str = "#1a4d8c"      # 深蓝（数据点）
+    BORDER_NO_DATA: str = "#3a3a3a"
+    BORDER_BTN_DISABLED: str = "#1a2542"
+    # ---- 选中专用（高对比度，让用户一眼看出当前选区） ---------------------
+    BORDER_SELECTED: str = "#00ffff"        # 选中（亮青，比 PRIMARY 更亮）
+    BORDER_SELECTED_NODATA: str = "#cccccc"  # 选中 + NO_DATA（亮灰，区别于 BORDER_NO_DATA #3a3a3a）
+    BORDER_SELECTED_ANOMALY: str = "#ff3b5c" # 选中 + 异常（亮红）
+
+    # ---- 文本 -------------------------------------------------------------
+    TEXT_PRIMARY: str = "#e2e8f0"
+    TEXT_SECONDARY: str = "#7a8ba8"
+    TEXT_DIM: str = "#3d4a66"
+    TEXT_VALUE: str = "#0a1f3d"            # 深蓝（白底数字）
+    TEXT_LABEL: str = "#1a4d8c"            # 深蓝（标签/单位）
+    TEXT_DANGER: str = "#c01838"
+    TEXT_NEON_CYAN: str = "#00e5ff"
+    TEXT_NEON_GREEN: str = "#10ffa1"
+    TEXT_NO_DATA: str = "#666666"           # NO_DATA 状态文字灰色
+    TEXT_NO_DATA_VALUE: str = "#555555"     # NO_DATA 数字占位色
+    TEXT_COUNTDOWN_IDLE: str = "#5a6b88"    # 倒计时未启动（暗蓝）
+    TEXT_COUNTDOWN_RUNNING: str = "#00e5ff" # 倒计时运行中（霓虹青）
+    TEXT_COUNTDOWN_WARNING: str = "#ffae42" # 倒计时 < 60s 警告（橙）
+    TEXT_COUNTDOWN_EXPIRED: str = "#ff3b5c" # 倒计时归零（红）
+    PROGRESS_TRACK: str = "#0f1a30"        # 进度条轨道
+    PROGRESS_CHUNK_IDLE: str = "#1a2542"    # 进度条未启动
+    PROGRESS_CHUNK_RUNNING: str = "#00bfff" # 进度条运行中
+    PROGRESS_CHUNK_WARNING: str = "#ffae42" # 进度条 < 60s
+    PROGRESS_CHUNK_EXPIRED: str = "#ff3b5c" # 进度条已结束
+
+    # ---- 3D 机柜视图（GLViewWidget 不走 QSS，颜色直接用 RGB tuple）----------
+    # 这些是给 pyqtgraph OpenGL 用的（不是 QSS），RGB int 0-255
+    RACK_3D_BG: tuple = (4, 6, 13)              # 与 BG_DEEP 同步（深空黑）
+    RACK_3D_GRID: tuple = (40, 60, 100)         # 网格线（暗蓝）
+    RACK_3D_PANEL: tuple = (20, 30, 50)         # 机柜面板底色
+    RACK_3D_PANEL_EDGE: tuple = (60, 90, 140)   # 机柜边框
+    RACK_3D_LABEL: tuple = (180, 200, 230)      # 通道号文字（淡蓝白）
+    # LED 状态色：RGBA tuple (r, g, b, a)
+    LED_OFFLINE: tuple = (60, 70, 90, 180)      # 暗灰蓝
+    LED_RUNNING: tuple = (16, 255, 161, 255)    # 霓虹绿
+    LED_PAUSED: tuple = (0, 229, 255, 220)      # 霓虹青
+    LED_ALERT: tuple = (255, 59, 92, 255)       # 霓虹红
+    LED_WARNING: tuple = (255, 174, 66, 255)    # 警告橙（≤60s）
+    LED_SELECTED: tuple = (255, 255, 255, 255)  # 选中态白（叠加层）
+    LED_HOVER: tuple = (200, 220, 255, 200)     # hover 高亮
+
+
+@dataclass(frozen=True)
+class Fonts:
+    FAMILY_TITLE: str = (
+        "'Microsoft YaHei', 'PingFang SC', Consolas, monospace"
+    )
+    FAMILY_MONO: str = (
+        "'Microsoft YaHei', 'PingFang SC', Consolas, monospace"
+    )
+    FAMILY_DATA: str = "Consolas, monospace"
+    FAMILY_BUTTON: str = (
+        "'Microsoft YaHei', Consolas, monospace"
+    )
+
+
+@dataclass(frozen=True)
+class FontSizes:
+    XS: int = 8
+    SM: int = 9
+    MD: int = 10
+    LG: int = 12
+    XL: int = 13
+    XXL: int = 16
+    TITLE: int = 16
+    ACCENT: int = 11
+    PANEL_TITLE: int = 13
+    PANEL_FOOTER: int = 9
+    DATA_POINT_LABEL: int = 9
+    DATA_POINT_VALUE: int = 13
+    DATA_POINT_UNIT: int = 8
+    BUTTON: int = 12
+    STATUSBAR: int = 10
+    CELL_ID: int = 10
+    CELL_STATUS: int = 10
+    COUNTDOWN_BIG: int = 56      # 倒计时巨字
+    COUNTDOWN_STATUS: int = 11   # 倒计时状态文字
+
+
+@dataclass(frozen=True)
+class Sizing:
+    # 圆角
+    RADIUS_SM: int = 5    # 数据点
+    RADIUS_MD: int = 6    # 按钮 / 数据网格
+    RADIUS_LG: int = 8    # 数据网格外框
+    RADIUS_CELL: int = 10  # 数据单元
+
+    # 边框宽度
+    BORDER_THIN: int = 1
+    BORDER_THICK: int = 2
+
+    # 垂直分组分割线
+    VLINE_TOTAL_W: int = 18   # vline 容器宽度（含两侧空气）
+    VLINE_CORE_W: int = 2     # 中心高亮实线宽
+    VLINE_MARGIN: int = 8     # vline 上下边距，避免顶满
+
+    # 详情页
+    CHART_MIN_H: int = 240
+    DETAIL_MIN_W: int = 900
+    DETAIL_MIN_H: int = 720
+
+    # 最小尺寸（widget 几何）
+    TITLE_BAR_H: int = 40
+    HEADER_BAR_H: int = 22
+    BUTTON_MIN_H: int = 54
+    DATA_POINT_MIN_W: int = 50
+    DATA_POINT_MIN_H: int = 40
+    DATA_CELL_MIN_W: int = 280
+    DATA_CELL_MIN_H: int = 150
+    DATA_GRID_MARGIN: int = 3
+    DATA_GRID_SPACING: int = 3
+    DATA_POINT_MARGIN_H: int = 3
+    DATA_POINT_MARGIN_V: int = 1
+    HEADER_BAR_MARGIN_LR: int = 4
+    HEADER_BAR_MARGIN_B: int = 4
+    CELL_OUTER_MARGIN_H: int = 8
+    CELL_OUTER_MARGIN_V: int = 6
+    CELL_OUTER_SPACING: int = 6
+    COUNTDOWN_PROGRESS_H: int = 8  # 倒计时进度条高度
+
+
+@dataclass(frozen=True)
+class DesignTokens:
+    colors: Colors
+    fonts: Fonts
+    font_sizes: FontSizes
+    sizing: Sizing
+
+    @classmethod
+    def default(cls) -> "DesignTokens":
+        return cls(
+            colors=Colors(),
+            fonts=Fonts(),
+            font_sizes=FontSizes(),
+            sizing=Sizing(),
+        )
+
+
+# 全局默认 token 实例（绝大多数场景直接用这个）
+DEFAULT_TOKENS: DesignTokens = DesignTokens.default()

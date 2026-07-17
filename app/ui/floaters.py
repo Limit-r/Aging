@@ -1,0 +1,333 @@
+"""v3.0 主页浮窗层组件（3D 全屏 + HUD 浮窗叠加）。
+
+设计目标：
+- 3D 机柜视图占满整个 HomeDashboard
+- 4 个浮窗 widget 绝对定位在 3D 之上（左信息 / 中央标题 / 右告警 / 右下 HUD）
+- 1 个"立即复位"按钮在右上角（不显眼）
+- 浮窗默认半透明 + 发光描边，让 3D 透过来
+- 不拦截鼠标事件（穿透到下层 GLViewWidget）
+
+依赖：Qt5 / app.core.tokens / app.core.labels
+"""
+
+from __future__ import annotations
+
+from typing import List, Optional, Tuple
+
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import (
+    QFrame, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QSizePolicy,
+)
+
+from app.core import config, labels
+from app.core.tokens import DEFAULT_TOKENS
+from app.observability import get_logger
+
+
+_log = get_logger("app.ui.floaters")
+
+
+# ============================================================================
+# 浮窗基础样式
+# ============================================================================
+
+# 半透明背景（rgba）+ 描边的 QSS（带轻微 box-shadow 通过 border 模拟发光）
+_FLOATER_BASE_QSS = """
+QFrame#floaterPanel {{
+    background-color: rgba(10, 15, 28, 200);
+    border: 1px solid {border};
+    border-radius: 8px;
+}}
+
+QLabel#floaterTitle {{
+    color: {border};
+    font-family: {font_mono};
+    font-size: 11pt;
+    font-weight: bold;
+    letter-spacing: 2px;
+    background: transparent;
+    padding: 0 0 4px 0;
+}}
+
+QLabel#floaterBody {{
+    color: {text};
+    font-family: {font_mono};
+    font-size: 10pt;
+    background: transparent;
+    padding: 2px 0;
+}}
+
+QLabel#floaterAccent {{
+    color: {accent};
+    font-family: {font_data};
+    font-size: 14pt;
+    font-weight: bold;
+    background: transparent;
+    padding: 0;
+}}
+
+QLabel#floaterHint {{
+    color: {hint};
+    font-family: {font_mono};
+    font-size: 8pt;
+    font-style: italic;
+    background: transparent;
+    padding: 4px 0 0 0;
+}}
+"""
+
+
+def _floater_qss(side: str = "left") -> str:
+    """根据侧边返回对应 QSS 片段。
+
+    side: "right" / "ledstrip" / "bottomright" / "reset"
+    """
+    c = DEFAULT_TOKENS.colors
+    f = DEFAULT_TOKENS.fonts
+    if side == "right":
+        # 告警浮窗：橙边框（高警示）
+        border = "rgba(255, 174, 66, 180)"
+        accent = c.TEXT_COUNTDOWN_WARNING
+    elif side == "ledstrip":
+        # LED 状态矩阵：绿边框（中性 + 与 RUNNING LED 一致）
+        border = "rgba(16, 255, 161, 160)"
+        accent = c.TEXT_NEON_GREEN
+    elif side == "bottomright":
+        # HUD 浮窗：青边框（与 3D 边框一致）
+        border = "rgba(0, 229, 255, 180)"
+        accent = c.TEXT_NEON_CYAN
+    else:  # reset button handled inline
+        border = "rgba(60, 80, 120, 140)"
+        accent = c.TEXT_DIM
+    return _FLOATER_BASE_QSS.format(
+        border=border,
+        text=c.TEXT_PRIMARY,
+        accent=accent,
+        hint=c.TEXT_DIM,
+        font_mono=f.FAMILY_MONO,
+        font_data=f.FAMILY_DATA,
+    )
+
+
+# ============================================================================
+# 右浮窗：最近告警
+# ============================================================================
+class RightAlertsFloater(QFrame):
+    """右上角告警浮窗（最近 3 条）。"""
+
+    def __init__(self, parent: Optional[QFrame] = None):
+        super().__init__(parent)
+        self.setObjectName("floaterPanel")
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setFixedWidth(220)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.setStyleSheet(_floater_qss("right"))
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(4)
+
+        title = QLabel(labels.HUD_ALERTS_TITLE)
+        title.setObjectName("floaterTitle")
+        layout.addWidget(title)
+
+        self._empty = QLabel(labels.HUD_ALERTS_EMPTY)
+        self._empty.setObjectName("floaterBody")
+        layout.addWidget(self._empty)
+        layout.addStretch(1)
+
+    def set_alerts(self, alerts: List[Tuple[int, str]]) -> None:
+        if not alerts:
+            self._empty.setText(labels.HUD_ALERTS_EMPTY)
+            return
+        # 显示最近 3 条
+        lines = [
+            labels.HUD_ALERT_ITEM_TEMPLATE.format(cid=cid, reason=reason)
+            for cid, reason in alerts[:3]
+        ]
+        self._empty.setText("\n".join(lines))
+
+
+# ============================================================================
+# 右下浮窗：运行 / 暂停 / 停止 计数
+# ============================================================================
+class BottomRightHUDFloater(QFrame):
+    """右下角 HUD 浮窗：系统状态计数。"""
+
+    def __init__(self, parent: Optional[QFrame] = None):
+        super().__init__(parent)
+        self.setObjectName("floaterPanel")
+        self.setFixedWidth(220)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.setStyleSheet(_floater_qss("bottomright"))
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(4)
+
+        title = QLabel(labels.HUD_SYSTEM_STATS_TITLE)
+        title.setObjectName("floaterTitle")
+        layout.addWidget(title)
+
+        total = config.GRID_ROWS * config.GRID_COLS
+        self._run_label = QLabel(
+            labels.HUD_SYSTEM_STATS_RUNNING_TEMPLATE.format(n=0, total=total)
+        )
+        self._run_label.setObjectName("floaterBody")
+        layout.addWidget(self._run_label)
+
+        self._pause_label = QLabel(
+            labels.HUD_SYSTEM_STATS_PAUSED_TEMPLATE.format(n=0, total=total)
+        )
+        self._pause_label.setObjectName("floaterBody")
+        layout.addWidget(self._pause_label)
+
+        self._stop_label = QLabel(
+            labels.HUD_SYSTEM_STATS_STOPPED_TEMPLATE.format(n=total, total=total)
+        )
+        self._stop_label.setObjectName("floaterBody")
+        layout.addWidget(self._stop_label)
+        layout.addStretch(1)
+
+    def set_counts(self, running: int, paused: int, stopped: int) -> None:
+        total = config.GRID_ROWS * config.GRID_COLS
+        self._run_label.setText(
+            labels.HUD_SYSTEM_STATS_RUNNING_TEMPLATE.format(n=running, total=total)
+        )
+        self._pause_label.setText(
+            labels.HUD_SYSTEM_STATS_PAUSED_TEMPLATE.format(n=paused, total=total)
+        )
+        self._stop_label.setText(
+            labels.HUD_SYSTEM_STATS_STOPPED_TEMPLATE.format(n=stopped, total=total)
+        )
+
+
+# ============================================================================
+# 8 行 × 9 列 LED 状态点竖条浮窗（Phase 1.19）
+# ============================================================================
+class RightLEDStripFloater(QFrame):
+    """右侧 8 行 × 9 列 LED 状态点矩阵浮窗。
+
+    视觉：一行 9 个小圆点，对应 9 列；8 行对应 8 row。
+    颜色映射：与 Rack3DView.LEDState 一致。
+    """
+
+    def __init__(self, parent: Optional[QFrame] = None):
+        super().__init__(parent)
+        self.setObjectName("floaterPanel")
+        self.setFixedWidth(220)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        self.setStyleSheet(_floater_qss("ledstrip"))
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(6)
+
+        # 标题
+        title = QLabel("● 状态矩阵  //  STATUS MATRIX")
+        title.setObjectName("floaterTitle")
+        layout.addWidget(title)
+
+        # 8 行 × 9 列
+        self._cell_labels: List[QLabel] = []
+        c = DEFAULT_TOKENS.colors
+        # LED 状态 → CSS 背景色（rgba）
+        self._color_map = {
+            "offline": f"rgba({c.LED_OFFLINE[0]}, {c.LED_OFFLINE[1]}, {c.LED_OFFLINE[2]}, 0.6)",
+            "running": f"rgba({c.LED_RUNNING[0]}, {c.LED_RUNNING[1]}, {c.LED_RUNNING[2]}, 0.95)",
+            "paused":  f"rgba({c.LED_PAUSED[0]}, {c.LED_PAUSED[1]}, {c.LED_PAUSED[2]}, 0.95)",
+            "alert":   f"rgba({c.LED_ALERT[0]}, {c.LED_ALERT[1]}, {c.LED_ALERT[2]}, 0.95)",
+            "warning": f"rgba({c.LED_WARNING[0]}, {c.LED_WARNING[1]}, {c.LED_WARNING[2]}, 0.95)",
+        }
+
+        for row in range(config.GRID_ROWS):
+            row_layout = QHBoxLayout()
+            row_layout.setSpacing(2)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            # 行号
+            row_label = QLabel(f"{row + 1:02d}")
+            row_label.setObjectName("floaterBody")
+            row_label.setFixedWidth(20)
+            row_label.setAlignment(Qt.AlignCenter)
+            row_layout.addWidget(row_label)
+            # 9 个小圆点
+            for col in range(config.GRID_COLS):
+                dot = QLabel("●")
+                dot.setFixedSize(16, 16)
+                dot.setAlignment(Qt.AlignCenter)
+                # 初始：offline 灰
+                dot.setStyleSheet(
+                    f"color: {self._color_map['offline']}; background: transparent;"
+                )
+                self._cell_labels.append(dot)
+                row_layout.addWidget(dot)
+            row_layout.addStretch(1)
+            layout.addLayout(row_layout)
+
+        # 默认全部置为 OFFLINE
+        self.set_led_state_all("offline")
+
+    def set_led_state(self, cid: int, state: str) -> None:
+        """更新单个 LED 状态色（cid 1..72）。"""
+        if cid < 1 or cid > len(self._cell_labels):
+            return
+        color = self._color_map.get(state, self._color_map["offline"])
+        self._cell_labels[cid - 1].setStyleSheet(
+            f"color: {color}; background: transparent;"
+        )
+
+    def set_led_state_all(self, state: str) -> None:
+        """批量设置所有点同一状态。"""
+        for lbl in self._cell_labels:
+            color = self._color_map.get(state, self._color_map["offline"])
+            lbl.setStyleSheet(
+                f"color: {color}; background: transparent;"
+            )
+
+    def set_led_state_batch(self, state_map) -> None:
+        """批量设置多个点（state_map: {cid: state}）。"""
+        for cid, state in state_map.items():
+            self.set_led_state(cid, state)
+
+
+# ============================================================================
+# 右上角"立即复位"按钮（不显眼）
+# ============================================================================
+class ResetViewButton(QPushButton):
+    """右上角"立即复位"按钮：把 3D 相机角度恢复初始 + 暂停自动旋转。"""
+
+    clicked_reset = pyqtSignal()  # HomeDashboard 监听，触发相机复位
+
+    def __init__(self, parent: Optional[QFrame] = None):
+        super().__init__("⟲  复位视角", parent)
+        self.setObjectName("resetViewButton")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedSize(96, 28)
+        # 不显眼：深色背景 + 细描边 + 小号字
+        c = DEFAULT_TOKENS.colors
+        self.setStyleSheet(
+            f"""
+            QPushButton#resetViewButton {{
+                background-color: rgba(10, 15, 28, 180);
+                color: {c.TEXT_DIM};
+                border: 1px solid rgba(60, 80, 120, 140);
+                border-radius: 4px;
+                font-family: {DEFAULT_TOKENS.fonts.FAMILY_MONO};
+                font-size: 9pt;
+                font-weight: normal;
+                padding: 0;
+            }}
+            QPushButton#resetViewButton:hover {{
+                background-color: rgba(20, 30, 50, 220);
+                color: {c.TEXT_NEON_CYAN};
+                border: 1px solid {c.BORDER_PRIMARY};
+            }}
+            QPushButton#resetViewButton:pressed {{
+                background-color: {c.BORDER_PRIMARY};
+                color: {c.BG_DEEP};
+            }}
+            """
+        )
+        self.setToolTip("把 3D 视角复位到初始位置（不打断数据）")
+        self.clicked.connect(self.clicked_reset.emit)
