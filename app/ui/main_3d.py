@@ -69,10 +69,10 @@ LED_SIZE = 0.675                        # 散点大小（Phase 1.25 再放大 1.
 PANEL_THICKNESS = 0.9                   # 机柜面板深度（Phase 1.25：0.6→0.9）
 PANEL_PAD_X = 1.35                      # 面板左右留白（Phase 1.25：0.9→1.35）
 PANEL_PAD_Y = 1.35                      # 面板上下留白（Phase 1.25：0.9→1.35）
-CAMERA_DIST = 30.0                      # 初始相机距离（保持）
-CAMERA_ELEV = 35.0                      # 俯视角（保持）
-CAMERA_AZIM = 5.0                       # 方位角（保持）
-CAMERA_CENTER = (0, 0.45, -3.6)           # 视角中心下移 Z（世界 Z ↓ = 屏幕 ↑，~500px）
+CAMERA_DIST = 26.0                      # 初始相机距离（26 让 panel 完整在屏幕内）
+CAMERA_ELEV = 35.0                      # 俯视角（保持 3D 立体感）
+CAMERA_AZIM = 90.0                      # 方位角（0→90 让 panel 边缘与屏幕平行，消除对角倾斜）
+CAMERA_CENTER = (0, 0, -1.0)            # 视角中心（Y=0、Z=-1 让 panel 在屏幕居中）
 
 
 class Rack3DView(QWidget):
@@ -150,7 +150,7 @@ class Rack3DView(QWidget):
         self._hover_label.hide()
         # 缓存 LED 2D 屏幕位置
         self._led_screen_pos: list = []
-        self._proj_dirty = True
+        self._proj_frame = 0  # 用于 hover timer 刷新节流，每 N 帧重算一次
         # 定时器：50ms 轮询鼠标位置（GLViewWidget 没有 mouseMoved 信号）
         self._hover_timer = QTimer(self)
         self._hover_timer.setInterval(50)  # 20fps
@@ -167,27 +167,28 @@ class Rack3DView(QWidget):
             elevation=CAMERA_ELEV,
             azimuth=CAMERA_AZIM,
         )
-        # Phase 3 fix：连 sigCameraChanged 让相机变化（拖拽/自动旋转/复位）
-        # 立即标记 _proj_dirty，下一次 _tick_hover / pick_led_at 自动重算 LED 屏幕坐标
-        if hasattr(self._gl, "sigCameraChanged"):
-            self._gl.sigCameraChanged.connect(self._on_camera_changed)
+        # 注：pyqtgraph 0.14.0 GLViewWidget 没有 sigCameraChanged 信号，
+        # 所以 LED 投影不能依赖信号驱动刷新。改为在 _tick_hover 和 pick_led_at
+        # 中每次使用时实时重算（利用帧计数器节流，避免过高频率）。
 
     def _compute_led_positions(self) -> np.ndarray:
         """生成 72 个 LED 的 3D 坐标。
 
         返回 shape (72, 3) 的 numpy 数组，顺序与 cid 1..72 对应：
-        - cid 1: 左下角 (row=GRID_ROWS-1, col=0)
-        - cid 72: 右上角 (row=0, col=GRID_COLS-1)
-        与 v2.0 MainWindow 9×8 网格"从右到左、从下到上"一致
-        （保留用户已有的视觉锚定习惯）。
+        - cid 1:  世界右下角 (row=GRID_ROWS-1, col=GRID_COLS-1) → 3D 屏幕视觉左上
+        - cid 72: 世界左上角 (row=0, col=0) → 3D 屏幕视觉右下
+        配合 azim=90°，与 CellGrid（电流页 2D 网格）"cid 1 在网格左上" 一致。
+
+        fix-13+fix-f：row 倒序 + col 倒序，配合 azim=90° 消除对角倾斜，
+        让面板在屏幕上呈矩形且 cid 编号与视觉位置完全匹配。
         """
         positions = np.zeros((GRID_ROWS * GRID_COLS, 3), dtype=np.float32)
-        x_offset = -(GRID_COLS - 1) / 2.0
-        y_offset = -(GRID_ROWS - 1) / 2.0
         idx = 0
-        for row in range(GRID_ROWS):
-            for col in range(GRID_COLS):
-                # row 0 = 顶，row GRID_ROWS-1 = 底（与 v2.0 9×8 一致）
+        # 关键：row 倒序 (7..0) + col 倒序 (7..0)
+        # row 倒序：idx 0 → (row=7, col=7) → world 左下 → 3D 屏幕视觉左上
+        # col 倒序：配合 azim=90 的轴反转，保证 col 0（左列）→ 屏幕左侧
+        for row in range(GRID_ROWS - 1, -1, -1):
+            for col in range(GRID_COLS - 1, -1, -1):
                 y = (GRID_ROWS - 1 - row - (GRID_ROWS - 1) / 2.0) * LED_SPACING
                 x = (col - (GRID_COLS - 1) / 2.0) * LED_SPACING
                 z = PANEL_THICKNESS / 2.0 + 0.05  # 略浮于面板前
@@ -359,10 +360,6 @@ class Rack3DView(QWidget):
         return self._best_hovered_cid
 
     # -- 鼠标 hover（Phase A.8.3） --------------------------------------------
-    def _on_camera_changed(self, *args) -> None:
-        """相机参数变化时，标记 LED 2D 位置缓存失效。"""
-        self._proj_dirty = True
-
     def _refresh_led_screen_pos(self) -> None:
         """用 viewMatrix × projectionMatrix 把每个 LED 3D 位置转 2D 屏幕坐标。
 
@@ -419,7 +416,6 @@ class Rack3DView(QWidget):
                     pos3d, e, exc_info=True,
                 )
                 self._led_screen_pos.append((None, None))
-        self._proj_dirty = False
 
     def pick_led_at(self, pos) -> Optional[int]:
         """Phase 3 fix：同步 ray-pick。
@@ -438,16 +434,18 @@ class Rack3DView(QWidget):
         Returns:
             命中的 cid (1..72)，未命中返回 None
         """
-        # 若缓存失效（相机移动过），先刷新
-        if self._proj_dirty:
-            self._refresh_led_screen_pos()
+        # 始终实时重算投影（pyqtgraph 0.14 没有 sigCameraChanged，不能依赖脏标记）
+        self._refresh_led_screen_pos()
         # 缓存为空说明 widget 还没就绪，返回 None
         if not self._led_screen_pos:
             _log.debug(
                 "pick_led_at: _led_screen_pos empty, no LED to pick",
             )
             return None
-        THRESHOLD_PX = 28
+        # 80px 阈值：兼容 panel 边缘 LED + azim 旋转 + 用户手抖
+        # 28px 太严，50px 也覆盖不到屏幕 4 角附近 LED
+        # 80px ≈ 1 个 LED 屏幕间距，让"点击 panel 边缘"也能命中
+        THRESHOLD_PX = 80
         px = float(pos.x()) if hasattr(pos, "x") else float(pos[0])
         py = float(pos.y()) if hasattr(pos, "y") else float(pos[1])
         best_cid: Optional[int] = None
@@ -466,10 +464,15 @@ class Rack3DView(QWidget):
 
         pyqtgraph 0.14 的 GLViewWidget 不提供 mouseMoved 信号，
         所以用 QTimer 轮询 QCursor.pos() + mapFromGlobal 转 Rack3DView 局部坐标。
+
+        Phase 3 fix-f：每 3 帧（150ms）重算 LED 屏幕投影，解决 sigCameraChanged 不存在的 bug。
+        点击/双击时 pick_led_at 总是实时重算，不受此节流影响。
         """
         if not self.isVisible():
             return
-        if self._proj_dirty:
+        # 每 3 帧重算一次投影（150ms，对 50ms 定时器来说足够）
+        self._proj_frame += 1
+        if self._proj_frame % 3 == 0:
             self._refresh_led_screen_pos()
         # 1) 屏幕鼠标位置 → Rack3DView 局部坐标
         global_pos = QCursor.pos()
@@ -479,8 +482,9 @@ class Rack3DView(QWidget):
                 self._hover_label.hide()
             return
         mx, my = local_pos.x(), local_pos.y()
-        # 2) 找最近 LED（< 28px 算命中）
-        THRESHOLD_PX = 28
+        # 2) 找最近 LED
+        # 80px 阈值：与 pick_led_at 保持一致，覆盖 panel 边缘 + azim 旋转
+        THRESHOLD_PX = 80
         best_cid = None
         best_dist = THRESHOLD_PX
         for i, (x, y) in enumerate(self._led_screen_pos):

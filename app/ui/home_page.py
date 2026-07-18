@@ -183,13 +183,21 @@ class HomeDashboard(QWidget):
         self._right.set_alerts(alerts)
 
     # -- 自动旋转 ---------------------------------------------------------------
-    def eventFilter(self, obj, event) -> bool:
-        """Phase 1.28 + 3.0 fix：
+    # 拖拽阈值（逻辑像素）：press 与 release 距离 < 此值视为单击而非拖拽
+    # 15px 兼顾手抖容错 + 旋转操作区分（明显拖拽 > 15px）
+    _CLICK_DRAG_THRESHOLD_PX = 15.0
 
-        - 监听鼠标按下/移动/释放/滚轮——任何一种都视为"用户正在操作 3D 视图"，
-          暂停自动旋转。
-        - 单击（press + release 距离 < 5px）= ray-pick LED → 打开详情。
-          替代原 dblclick 方案：消除 hover 依赖 + 抗相机拖拽吃 dblclick 事件。
+    def eventFilter(self, obj, event) -> bool:
+        """Phase 1.28 + 3.0 fix-14/15：
+
+        交互策略（双击优先 + 单击兜底）：
+        1) MouseButtonDblClick（Qt 系统级双击事件）→ 优先触发详情页打开
+           - 不依赖 hover 缓存（Qt 会自己管理双击间隔）
+           - 适用于 macOS/Windows 系统级双击习惯
+        2) 单击 + 拖拽检测（press + release 距离 < 15px）= ray-pick LED → 打开详情
+           - 兜底：若 GL widget 屏蔽 DblClick 事件（OpenGL 上下文问题）
+           - 抗相机拖拽吃 dblclick 事件
+        3) 任何鼠标事件都暂停自动旋转
         """
         if obj is self._rack._gl:
             et = event.type()
@@ -204,17 +212,39 @@ class HomeDashboard(QWidget):
                     self._press_pos = event.pos()
             elif et == QEvent.MouseButtonRelease:
                 self._mark_interact()
-                # 拖拽检测：release 距 press < 5px 视为单击
+                # 拖拽检测：release 距 press < 15px 视为单击
                 if hasattr(self, "_press_pos") and self._press_pos is not None:
                     release_pos = event.pos()
                     dx = release_pos.x() - self._press_pos.x()
                     dy = release_pos.y() - self._press_pos.y()
-                    if (dx * dx + dy * dy) ** 0.5 < 5.0:
+                    drag_d = (dx * dx + dy * dy) ** 0.5
+                    if drag_d < self._CLICK_DRAG_THRESHOLD_PX:
                         # 同步 ray-pick（不再依赖 _best_hovered_cid 缓存）
                         cid = self._rack.pick_led_at(release_pos)
+                        _log.info(
+                            "click detected: pos=(%d,%d) drag=%.1fpx cid=%s",
+                            int(release_pos.x()), int(release_pos.y()),
+                            drag_d, cid,
+                        )
                         if cid is not None:
                             self._open_detail(cid)
+                    else:
+                        _log.debug(
+                            "release too far from press (%.1fpx > %.0fpx threshold), treated as drag",
+                            drag_d, self._CLICK_DRAG_THRESHOLD_PX,
+                        )
                     self._press_pos = None
+            elif et == QEvent.MouseButtonDblClick:
+                # Qt 系统级双击：忽略 hover 缓存，直接 ray-pick 当前双击位置
+                self._mark_interact()
+                dbl_pos = event.pos()
+                cid = self._rack.pick_led_at(dbl_pos)
+                _log.info(
+                    "dblclick detected: pos=(%d,%d) cid=%s",
+                    int(dbl_pos.x()), int(dbl_pos.y()), cid,
+                )
+                if cid is not None:
+                    self._open_detail(cid)
         return super().eventFilter(obj, event)
 
     # -- Phase 3：详情页接入 ---------------------------------------------------
