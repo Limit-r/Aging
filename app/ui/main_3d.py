@@ -86,6 +86,9 @@ class Rack3DView(QWidget):
         self._led_states: Dict[int, LEDState] = {
             cid: LEDState.OFFLINE for cid in range(1, GRID_ROWS * GRID_COLS + 1)
         }
+        # Phase 3：最近一次 hover 命中的 cid（None = 未命中）
+        # 供 HomeDashboard.eventFilter 在 MouseButtonDblClick 时读取
+        self._best_hovered_cid: Optional[int] = None
         self._build_ui()
         self._build_scene()
         # 默认所有 LED 设为 OFFLINE
@@ -315,6 +318,15 @@ class Rack3DView(QWidget):
     def led_state(self, cid: int) -> LEDState:
         return self._led_states.get(cid, LEDState.OFFLINE)
 
+    @property
+    def best_hovered_cid(self) -> Optional[int]:
+        """最近一次 hover 命中的 LED cid（1..72）；无命中返回 None。
+
+        Phase 3：HomeDashboard.eventFilter 在 MouseButtonDblClick 时读取，
+        避免在双击瞬间重新做 ray-pick（_tick_hover 已每 50ms 更新一次）。
+        """
+        return self._best_hovered_cid
+
     # -- 鼠标 hover（Phase A.8.3） --------------------------------------------
     def _on_camera_changed(self, *args) -> None:
         """相机参数变化时，标记 LED 2D 位置缓存失效。"""
@@ -370,9 +382,12 @@ class Rack3DView(QWidget):
                 best_dist = d
                 best_cid = i + 1
         if best_cid is None:
+            self._best_hovered_cid = None
             if self._hover_label.isVisible():
                 self._hover_label.hide()
             return
+        # 命中：缓存到实例属性供双击事件读取
+        self._best_hovered_cid = best_cid
         # 3) 显示 tooltip
         state = self._led_states.get(best_cid, LEDState.OFFLINE)
         state_name = {

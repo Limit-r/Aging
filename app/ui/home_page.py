@@ -50,6 +50,7 @@ from app.ui.main_3d import (
 from app.ui.nav_bar import TopNavBar
 from app.ui.pages.current_page import CurrentDetectionPage
 from app.ui.pages.data_page import DataCenterPage
+from app.ui.pages.detail_page import DetailPage
 from app.ui.pages.settings_page import SettingsPage
 from app.ui.pages.video_page import VideoDetectionPage
 from app.ui.router import PageRouter
@@ -99,8 +100,12 @@ class HomeDashboard(QWidget):
         self._rack.stackUnder(self._right)
         # ---- 自动旋转相关 ----
         self._azimuth_offset = 0.0      # 用户手动调整的方位角
+        self._azimuth_offset_before_detail: Optional[float] = None  # Phase 3：进入详情页前暂存
         self._last_interact_ms = int(time.time() * 1000)  # 上次交互时间
         self._auto_rotate_active = False
+        self._auto_rotate_enabled = True  # Phase 3：详情页打开时设为 False 暂停旋转
+        # Phase 3：双击 LED → 通知 HomePage 路由切到 detail
+        self._on_open_detail_callback = None  # type: Optional[Callable[[int], None]]
         self._rotate_timer = QTimer(self)
         self._rotate_timer.setInterval(self.ROTATE_TICK_MS)
         self._rotate_timer.timeout.connect(self._tick_rotate)
@@ -181,18 +186,47 @@ class HomeDashboard(QWidget):
     def eventFilter(self, obj, event) -> bool:
         """Phase 1.28：监听 GLViewWidget 事件，记录用户交互时间。
 
-        监听鼠标按下/移动/滚轮——任何一种都视为"用户正在操作 3D 视图"，
+        监听鼠标按下/移动/双击/滚轮——任何一种都视为"用户正在操作 3D 视图"，
         暂停自动旋转。
+        Phase 3：MouseButtonDblClick → 打开详情页。
         """
         if obj is self._rack._gl:
             et = event.type()
             if et in (
                 QEvent.MouseButtonPress,
                 QEvent.MouseMove,
+                QEvent.MouseButtonDblClick,  # Phase 3：双击开详情
                 QEvent.Wheel,
             ):
                 self._mark_interact()
+                if et == QEvent.MouseButtonDblClick:
+                    cid = self._rack.best_hovered_cid
+                    if cid is not None:
+                        self._open_detail(cid)
         return super().eventFilter(obj, event)
+
+    # -- Phase 3：详情页接入 ---------------------------------------------------
+    def _open_detail(self, cid: int) -> None:
+        """双击 LED → HomePage 路由切到 detail + 暂停自动旋转 + 暂存 azimuth。
+
+        实际路由切换由 HomePage 完成（持有 router 引用），这里只发信号。
+        """
+        self._azimuth_offset_before_detail = self._azimuth_offset
+        # 暂停自动旋转（避免详情页打开后视图还在跳）
+        self.set_auto_rotate(False)
+        # 通知 HomePage
+        if self._on_open_detail_callback is not None:
+            self._on_open_detail_callback(cid)
+
+    def set_auto_rotate(self, enabled: bool) -> None:
+        """Phase 3：详情页打开/关闭时启用/禁用 3D 自动旋转。"""
+        self._auto_rotate_enabled = enabled
+        if not enabled and self._auto_rotate_active:
+            self._auto_rotate_active = False
+            self._rotate_timer.stop()
+        if enabled and not self._auto_rotate_active:
+            # 恢复：标记为刚交互过，等 IDLE_TIMEOUT_MS 后再自动启动
+            self._mark_interact()
 
     def _mark_interact(self) -> None:
         """用户与 3D 交互时记录时间，停止自动旋转。"""
@@ -204,6 +238,8 @@ class HomeDashboard(QWidget):
 
     def _tick_idle(self) -> None:
         """空闲检测：5s 无交互 → 启动自动旋转。"""
+        if not self._auto_rotate_enabled:
+            return
         if self._auto_rotate_active:
             return
         now = int(time.time() * 1000)
@@ -288,15 +324,25 @@ class HomePage(QMainWindow):
         self._nav = TopNavBar()
         root.addWidget(self._nav)
 
-        # 2) 中央：PageRouter 包裹 5 个页面
+        # 2) 中央：PageRouter 包裹 5 个页面 + Phase 3 详情页
         self._router = PageRouter()
         self._dashboard = HomeDashboard()
         self._current_page = CurrentDetectionPage()  # 保留引用（A.7 联动需要）
+        # Phase 3：详情页（双击 LED 打开，从 current_page 拿 controller/buffer 引用）
+        self._detail_page = DetailPage(
+            history=self._current_page.history_buffer,
+            cell_controller=self._current_page.cell_controller,
+        )
         self._router.register("home", self._dashboard)
         self._router.register("current", self._current_page)
         self._router.register("video", VideoDetectionPage())
         self._router.register("data", DataCenterPage())
         self._router.register("settings", SettingsPage())
+        self._router.register("detail", self._detail_page)
+        # Phase 3：HomeDashboard 双击 → HomePage 路由切到 detail
+        self._dashboard._on_open_detail_callback = self._on_open_detail
+        self._detail_page.requested_back.connect(self._on_detail_back)
+        self._detail_page.action_requested.connect(self._on_detail_action)
         root.addWidget(self._router, 1)
 
         # 3) 底部状态栏
@@ -353,3 +399,34 @@ class HomePage(QMainWindow):
     def _toggle_heartbeat(self) -> None:
         """心跳点 1Hz 闪烁（Phase 1.19 视觉增强）。"""
         self._heartbeat.setVisible(not self._heartbeat.isVisible())
+
+    # -- Phase 3：详情页接线 ---------------------------------------------------
+    def _on_open_detail(self, cid: int) -> None:
+        """HomeDashboard 双击 LED → 切到详情页 + 切换 chart 数据。"""
+        self._detail_page.set_channel(cid)
+        self._router.navigate("detail")
+        _log.info("home → detail: cid=%d", cid)
+
+    def _on_detail_back(self) -> None:
+        """详情页点"返回主页" → 路由回 home + 恢复 3D 旋转 + 恢复 azimuth。"""
+        self._router.navigate("home")
+        # 恢复 azimuth
+        saved = self._dashboard._azimuth_offset_before_detail
+        if saved is not None:
+            self._dashboard._azimuth_offset = saved
+            self._dashboard._rack._gl.setCameraPosition(
+                pos=Vector(*CAMERA_CENTER),
+                distance=CAMERA_DIST,
+                elevation=CAMERA_ELEV,
+                azimuth=CAMERA_AZIM + saved,
+            )
+            self._dashboard._azimuth_offset_before_detail = None
+        # 恢复自动旋转（标记刚交互，等 IDLE_TIMEOUT 后再启动）
+        self._dashboard.set_auto_rotate(True)
+        _log.info("detail → home: rotation & azimuth restored")
+
+    def _on_detail_action(self, action: str, cid: int) -> None:
+        """详情页操作按钮 → 转发给 CellController。"""
+        if hasattr(self, "_current_page") and self._current_page is not None:
+            self._current_page.cell_controller.apply(action, [cid])
+        _log.info("detail action forwarded: %s cid=%d", action, cid)

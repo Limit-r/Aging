@@ -150,6 +150,19 @@ class CurrentDetectionPage(QWidget):
             note="v3.0 电流检测页 Phase A.8：选区 + 批量工具条 + 4 cell demo",
         )
 
+    # -- Phase 3：对外暴露的服务引用（HomePage 用于构造 DetailPage）---------
+    @property
+    def cell_controller(self) -> CellController:
+        return self._controller
+
+    @property
+    def history_buffer(self) -> HistoryBuffer:
+        return self._buffer
+
+    @property
+    def data_source(self) -> "DemoDataSource":
+        return self._source
+
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
