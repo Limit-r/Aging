@@ -30,7 +30,7 @@ from typing import Dict, Optional
 
 import numpy as np
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QCursor
+from PyQt5.QtGui import QCursor, QMatrix4x4, QVector3D
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSizePolicy
 from pyqtgraph.opengl import (
     GLViewWidget,
@@ -364,32 +364,58 @@ class Rack3DView(QWidget):
         self._proj_dirty = True
 
     def _refresh_led_screen_pos(self) -> None:
-        """用 GLViewWidget.project 把每个 LED 3D 位置转 2D 屏幕坐标。"""
+        """用 viewMatrix × projectionMatrix 把每个 LED 3D 位置转 2D 屏幕坐标。
+
+        Phase 3 fix：pyqtgraph 0.14.0 的 GLViewWidget 没有 .project() 方法，
+        需手动用 QMatrix4x4.map(QVector3D)（内部已做 perspective divide）。
+        公式：ndc = (projection × view) × pos3d → viewport = ndc → pixels
+        """
         if not self._gl.isVisible():
             return
         self._led_screen_pos = []
         view_w = self._gl.width()
         view_h = self._gl.height()
-        # Phase 3 fix：若 viewport 尺寸为 0，project 会失败，先记日志
         if view_w <= 0 or view_h <= 0:
             _log.warning(
                 "_refresh_led_screen_pos: gl viewport size=0 (%dx%d), skipped",
                 view_w, view_h,
             )
             return
+        # 取当前 view + projection 矩阵（每次都重新读，因相机可能刚变）
+        try:
+            view_m = self._gl.viewMatrix()
+            # pyqtgraph 0.14.0: projectionMatrix(region, viewport)
+            # region = (x, y, w, h) 数据区域，viewport = (x, y, w, h) GL 视口
+            # 全视口投影：region = viewport
+            viewport_rect = self._gl.getViewport()
+            proj_m = self._gl.projectionMatrix(viewport_rect, viewport_rect)
+        except Exception as e:
+            _log.error(
+                "_refresh_led_screen_pos: read viewMatrix/projectionMatrix failed: %r",
+                e, exc_info=True,
+            )
+            return
+        # 合并矩阵：combined = projection × view
+        # QMatrix4x4 * QMatrix4x4 是矩阵乘法
+        combined = proj_m * view_m
         for pos3d in self._led_positions:
             try:
-                p2d = self._gl.project(pos3d)
-                # pyqtgraph 0.14.0 returns QPointF-like
-                if hasattr(p2d, "x"):
-                    x, y = float(p2d.x()), float(p2d.y())
-                else:
-                    x, y = float(p2d[0]), float(p2d[1])
+                p3d = QVector3D(
+                    float(pos3d[0]),
+                    float(pos3d[1]),
+                    float(pos3d[2]),
+                )
+                # QMatrix4x4.map(QVector3D) 自动 perspective divide + 返回 NDC
+                ndc = combined.map(p3d)
+                # NDC [-1, 1] → 视口像素
+                x = (ndc.x() + 1.0) / 2.0 * view_w
+                # Y 翻转：NDC 顶部 y=+1，Qt 视口顶部 y=0
+                y = (1.0 - ndc.y()) / 2.0 * view_h
                 self._led_screen_pos.append((x, y))
             except Exception as e:
                 # Phase 3 fix：原代码 silent except，违反项目记忆"禁止吞错"
                 _log.error(
-                    "_refresh_led_screen_pos: project failed at pos3d=%r: %r",
+                    "_refresh_led_screen_pos: map failed at pos3d=%r: %r",
                     pos3d, e, exc_info=True,
                 )
                 self._led_screen_pos.append((None, None))
