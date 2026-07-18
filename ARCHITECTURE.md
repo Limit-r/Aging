@@ -80,7 +80,8 @@ d:\Aging\
             ├── current_page.py      # 电流检测（9×8 + 选区 + 批量工具）✅
             ├── video_page.py        # 视频检测（占位）⏳
             ├── data_page.py         # 数据中心（占位）⏳
-            └── settings_page.py     # 系统设置（占位）⏳
+            ├── settings_page.py     # 系统设置（占位）⏳
+            └── detail_page.py       # 单 channel 详情（双击 3D LED 进入）✅  v3.0 Phase 3
 ```
 
 ---
@@ -137,6 +138,7 @@ core  ←  data
 | [app/ui/qss_utils.py](file:///d:/Aging/app/ui/qss_utils.py) | QSS 工具 | `refresh_qss(widget)` |
 | [app/ui/dialogs.py](file:///d:/Aging/app/ui/dialogs.py) | 通用对话框 | `confirm_stop_running()` |
 | [app/ui/pages/current_page.py](file:///d:/Aging/app/ui/pages/current_page.py) | 电流检测 | `CurrentDetectionPage` |
+| [app/ui/pages/detail_page.py](file:///d:/Aging/app/ui/pages/detail_page.py) | 单 channel 详情（双击 3D LED 进入）| `DetailPage` |
 | [app/ui/pages/video_page.py](file:///d:/Aging/app/ui/pages/video_page.py) | 视频检测（占位） | `VideoDetectionPage` |
 | [app/ui/pages/data_page.py](file:///d:/Aging/app/ui/pages/data_page.py) | 数据中心（占位） | `DataCenterPage` |
 | [app/ui/pages/settings_page.py](file:///d:/Aging/app/ui/pages/settings_page.py) | 系统设置（占位） | `SettingsPage` |
