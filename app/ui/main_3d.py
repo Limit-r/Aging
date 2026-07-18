@@ -294,6 +294,33 @@ class Rack3DView(QWidget):
         self._led_states[cid] = state
         self._refresh_led_colors()
 
+    def flash_led_alert(self, cid: int, duration_ms: int = 200) -> None:
+        """Phase 3：临时把指定 LED 设为 ALERT 状态 duration_ms 毫秒后恢复。
+
+        用于"双击 LED 进入详情页"的视觉反馈。
+        注意：仅当 LED 真实状态不是 ALERT 时才临时闪烁（避免覆盖真实告警）。
+        """
+        if cid < 1 or cid > GRID_ROWS * GRID_COLS:
+            return
+        if self._led_states.get(cid) == LEDState.ALERT:
+            return  # 不覆盖真实告警
+        original = self._led_states.get(cid, LEDState.OFFLINE)
+        self._led_states[cid] = LEDState.ALERT
+        self._refresh_led_colors()
+        # duration_ms 后恢复
+        from PyQt5.QtCore import QTimer as _QTimer
+        _QTimer.singleShot(
+            duration_ms,
+            lambda: self._restore_led(cid, original),
+        )
+
+    def _restore_led(self, cid: int, original: "LEDState") -> None:
+        """恢复 LED 到原状态（flash_led_alert 用）。"""
+        if cid < 1 or cid > GRID_ROWS * GRID_COLS:
+            return
+        self._led_states[cid] = original
+        self._refresh_led_colors()
+
     def set_all_leds_state(self, state: LEDState) -> None:
         """批量设置所有 LED 同一状态。"""
         changed = False

@@ -211,6 +211,8 @@ class HomeDashboard(QWidget):
 
         实际路由切换由 HomePage 完成（持有 router 引用），这里只发信号。
         """
+        # Phase 3 C1：双击视觉反馈（200ms LED 闪烁）
+        self._rack.flash_led_alert(cid, duration_ms=200)
         self._azimuth_offset_before_detail = self._azimuth_offset
         # 暂停自动旋转（避免详情页打开后视图还在跳）
         self.set_auto_rotate(False)
