@@ -36,7 +36,6 @@ from app.core.tokens import DEFAULT_TOKENS
 from app.data.history_buffer import HistoryBuffer
 from app.data.protocol import ChannelReading
 from app.observability import get_logger, narrative
-from app.observability.safe_call import safe_call
 from app.services.cell_controller import CellController, DetectionState
 
 
@@ -198,9 +197,13 @@ class DetailPage(QWidget):
 
     # -- 信号接线 -------------------------------------------------------------
     def _wire_signals(self) -> None:
-        """订阅 HistoryBuffer.append（事件驱动）+ CellController.state_changed。"""
-        # 事件驱动：append 信号触发 dirty 标记
-        self._history.append.connect(self._on_history_append)
+        """订阅 HistoryBuffer.appended（事件驱动）+ CellController.state_changed。
+
+        注意：HistoryBuffer 暴露的是 appended 信号（过去式），
+        不是同名方法 append()——同名 method 会覆盖 PyQt5 signal 描述符。
+        """
+        # 事件驱动：appended 信号触发 dirty 标记
+        self._history.appended.connect(self._on_history_append)
         # 状态同步：state_changed 更新 title + 启用/禁用异常检测
         self._controller.state_changed.connect(self._on_state_changed)
         # 5fps 兜底 tick
@@ -254,61 +257,90 @@ class DetailPage(QWidget):
         }.get(state, "未知")
 
     # -- 槽函数 ---------------------------------------------------------------
-    @safe_call(context="_on_history_append")
+    # 不使用 @safe_call 装饰：functools.wraps 不保留真实签名给 PyQt5 内省，
+    # 签名不匹配时会被 safe_call 静默吞 TypeError → UI 无响应（项目记忆已记）。
+    # 改为内部 try/except 显式记录，确保错误能被定位。
     def _on_history_append(self, reading: ChannelReading) -> None:
-        """HistoryBuffer.append 信号 → 标记 dirty（事件驱动）。"""
-        if self._closing:
-            return
-        if reading.channel_id == self._cid:
-            self._dirty = True
+        """HistoryBuffer.appended 信号 → 标记 dirty（事件驱动）。"""
+        try:
+            if self._closing:
+                return
+            if reading.channel_id == self._cid:
+                self._dirty = True
+        except Exception as e:
+            _log.error("exception in _on_history_append: %r", e, exc_info=True)
 
-    @safe_call(context="_on_state_changed")
     def _on_state_changed(self, cid: int, old_value: str, new_value: str) -> None:
         """CellController.state_changed → 更新 title + 异常检测开关。"""
-        if self._closing or cid != self._cid:
-            return
-        self._refresh_title()
-        # 归零异常检测仅在 RUNNING 状态启用
-        if DetectionState(new_value) != DetectionState.RUNNING:
-            self._clear_anomaly_segments()
+        try:
+            if self._closing or cid != self._cid:
+                return
+            self._refresh_title()
+            # 归零异常检测仅在 RUNNING 状态启用
+            if DetectionState(new_value) != DetectionState.RUNNING:
+                self._clear_anomaly_segments()
+        except Exception as e:
+            _log.error("exception in _on_state_changed: %r", e, exc_info=True)
 
-    @safe_call(context="_tick_chart")
     def _tick_chart(self) -> None:
         """5fps 兜底 tick：无 dirty 直接返回，否则重绘。"""
-        if self._closing or not self._dirty or self._cid == 0:
-            return
-        self._render_chart()
-        self._dirty = False
+        try:
+            if self._closing or not self._dirty or self._cid == 0:
+                return
+            self._render_chart()
+            self._dirty = False
+        except Exception as e:
+            _log.error("exception in _tick_chart: %r", e, exc_info=True)
 
-    @safe_call(context="_on_sample")
     def _on_sample(self) -> None:
         """30s 周期采样日志。"""
-        if self._closing or self._cid == 0:
-            return
-        ts, currents = self._history.snapshot(self._cid)
-        n = len(ts)
-        # 是否有归零段（I1 通道 < 0.1A 算归零）
-        zero_anomaly = False
-        if currents and len(currents) > 0 and currents[0]:
-            zero_anomaly = any(v < self._ZERO_ANOMALY_A for v in currents[0])
-        _log.info(
-            "detail tick sample: cid=%d points=%d zero_anomaly=%s",
-            self._cid, n, zero_anomaly,
-        )
+        try:
+            if self._closing or self._cid == 0:
+                return
+            ts, currents = self._history.snapshot(self._cid)
+            n = len(ts)
+            # 是否有归零段（I1 通道 < 0.1A 算归零）
+            zero_anomaly = False
+            if currents and len(currents) > 0 and currents[0]:
+                zero_anomaly = any(v < self._ZERO_ANOMALY_A for v in currents[0])
+            narrative.event(
+                "detail_tick_sample",
+                cid=self._cid,
+                points=n,
+                zero_anomaly=zero_anomaly,
+                note="30s 周期采样",
+            )
+        except Exception as e:
+            _log.error("exception in _on_sample: %r", e, exc_info=True)
 
-    @safe_call(context="_on_back_clicked")
     def _on_back_clicked(self) -> None:
-        if self._closing:
-            return
-        _log.info("detail page close: cid=%d (back button)", self._cid)
-        self.requested_back.emit()
+        try:
+            if self._closing:
+                return
+            narrative.event(
+                "detail_page_close",
+                cid=self._cid,
+                reason="back_button",
+                note="用户点击返回主页",
+            )
+            self.requested_back.emit()
+        except Exception as e:
+            _log.error("exception in _on_back_clicked: %r", e, exc_info=True)
 
-    @safe_call(context="_on_action_clicked")
     def _on_action_clicked(self, action: str) -> None:
-        if self._closing or self._cid == 0:
-            return
-        _log.info("detail action: %s cid=%d", action, self._cid)
-        self.action_requested.emit(action, self._cid)
+        try:
+            if self._closing or self._cid == 0:
+                return
+            narrative.event(
+                "detail_action",
+                actor="user",
+                action=action,
+                cid=self._cid,
+                note=f"用户在 {format_cid(self._cid)} 详情页点击 {action}",
+            )
+            self.action_requested.emit(action, self._cid)
+        except Exception as e:
+            _log.error("exception in _on_action_clicked: %r", e, exc_info=True)
 
     # -- 渲染 -----------------------------------------------------------------
     def _render_chart(self) -> None:
@@ -353,7 +385,8 @@ class DetailPage(QWidget):
         self._clear_anomaly_segments()
         if not anomaly_ranges:
             return
-        # 画新的红色填充
+        # 画新的红色填充：先构造后 add，逐项 try 防止 addItem 异常时
+        # 旧 fills 已清但新 item 未入 _anomaly_fills 造成 widget 持有"孤儿"item
         alert = DEFAULT_TOKENS.colors.LED_ALERT
         for start, end in anomaly_ranges:
             if end - start < 1:
@@ -366,12 +399,18 @@ class DetailPage(QWidget):
                 pg.PlotDataItem(x_seg, [0.0] * len(y_seg)),
                 brush=pg.mkBrush(alert[0], alert[1], alert[2], 60),  # 60=alpha
             )
-            self._plot.addItem(fill)
+            try:
+                self._plot.addItem(fill)
+            except Exception as e:
+                _log.error("addItem anomaly fill failed: %r", e, exc_info=True)
+                continue
             self._anomaly_fills.append(fill)
         if anomaly_ranges:
-            _log.info(
-                "detail: cid=%d zero-anomaly segment red, count=%d",
-                self._cid, len(anomaly_ranges),
+            narrative.event(
+                "detail_zero_anomaly",
+                cid=self._cid,
+                count=len(anomaly_ranges),
+                note=f"检测到 {len(anomaly_ranges)} 段电流归零异常",
             )
 
     def _clear_anomaly_segments(self) -> None:

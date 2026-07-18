@@ -18,7 +18,7 @@
 import collections
 from typing import Deque, List, Optional, Tuple
 
-from PyQt5.QtCore import QObject, QTimer
+from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
 from app.core import config
 from app.data.protocol import ChannelReading
@@ -31,12 +31,17 @@ _log = get_logger("app.data.history_buffer")
 class HistoryBuffer(QObject):
     """单实例全局缓冲，72 通道共享。继承 QObject 以承载内部 30s summary timer。"""
 
+    # Phase 3：详情页订阅此信号实现事件驱动重绘
+    # 信号名用过去式（与 CellController.state_changed 风格一致），
+    # 避免与同名方法 append() 冲突（PyQt5 类内同名 method 会覆盖 signal 描述符）。
+    appended = pyqtSignal(object)  # ChannelReading
+
     _SUMMARY_INTERVAL_MS = 30_000  # 30s 1 条聚合 summary
 
     def __init__(
         self,
         channel_count: int,
-        capacity: int = None,
+        capacity: Optional[int] = None,
         parent: Optional[QObject] = None,
     ):
         super().__init__(parent)
@@ -60,6 +65,9 @@ class HistoryBuffer(QObject):
         self._buffers[reading.channel_id].append(reading)
         self._append_count += 1
         self._last_cid = reading.channel_id
+        # Phase 3：emit appended 信号供详情页事件驱动重绘
+        # Qt signal emit 是 noop 若无 slot 连接，零成本
+        self.appended.emit(reading)
         # 不再每 100 帧打 DEBUG；由 _summary_timer 每 30s 统一打 1 条
 
     def _log_summary(self) -> None:
