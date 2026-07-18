@@ -184,25 +184,37 @@ class HomeDashboard(QWidget):
 
     # -- 自动旋转 ---------------------------------------------------------------
     def eventFilter(self, obj, event) -> bool:
-        """Phase 1.28：监听 GLViewWidget 事件，记录用户交互时间。
+        """Phase 1.28 + 3.0 fix：
 
-        监听鼠标按下/移动/双击/滚轮——任何一种都视为"用户正在操作 3D 视图"，
-        暂停自动旋转。
-        Phase 3：MouseButtonDblClick → 打开详情页。
+        - 监听鼠标按下/移动/释放/滚轮——任何一种都视为"用户正在操作 3D 视图"，
+          暂停自动旋转。
+        - 单击（press + release 距离 < 5px）= ray-pick LED → 打开详情。
+          替代原 dblclick 方案：消除 hover 依赖 + 抗相机拖拽吃 dblclick 事件。
         """
         if obj is self._rack._gl:
             et = event.type()
             if et in (
                 QEvent.MouseButtonPress,
                 QEvent.MouseMove,
-                QEvent.MouseButtonDblClick,  # Phase 3：双击开详情
                 QEvent.Wheel,
             ):
                 self._mark_interact()
-                if et == QEvent.MouseButtonDblClick:
-                    cid = self._rack.best_hovered_cid
-                    if cid is not None:
-                        self._open_detail(cid)
+                if et == QEvent.MouseButtonPress:
+                    # 记录 press 位置 + 时间，用于后续 release 做拖拽检测
+                    self._press_pos = event.pos()
+            elif et == QEvent.MouseButtonRelease:
+                self._mark_interact()
+                # 拖拽检测：release 距 press < 5px 视为单击
+                if hasattr(self, "_press_pos") and self._press_pos is not None:
+                    release_pos = event.pos()
+                    dx = release_pos.x() - self._press_pos.x()
+                    dy = release_pos.y() - self._press_pos.y()
+                    if (dx * dx + dy * dy) ** 0.5 < 5.0:
+                        # 同步 ray-pick（不再依赖 _best_hovered_cid 缓存）
+                        cid = self._rack.pick_led_at(release_pos)
+                        if cid is not None:
+                            self._open_detail(cid)
+                    self._press_pos = None
         return super().eventFilter(obj, event)
 
     # -- Phase 3：详情页接入 ---------------------------------------------------
@@ -363,6 +375,13 @@ class HomePage(QMainWindow):
         self._router.page_changed.connect(self._on_page_changed)
         # Phase A.7：异常告警 → 主页 3D LED 联动
         self._wire_3d_anomaly_link()
+        # Phase 3 fix：HUD 数字（运行/暂停/停止）需要跟随 CellController 状态变化
+        # 原代码：HUD 只在 __init__ 时被设为 0/0/72，从不更新
+        self._current_page.cell_controller.state_changed.connect(
+            self._on_cell_state_for_hud
+        )
+        # 同步初始状态（demo 默认启动 1-4）
+        self._refresh_hud_counts()
 
     # -- slots -----------------------------------------------------------------
     def _on_nav(self, key: str) -> None:
@@ -432,3 +451,22 @@ class HomePage(QMainWindow):
         if hasattr(self, "_current_page") and self._current_page is not None:
             self._current_page.cell_controller.apply(action, [cid])
         _log.info("detail action forwarded: %s cid=%d", action, cid)
+
+    # -- Phase 3 fix：HUD 状态同步 -------------------------------------------
+    def _on_cell_state_for_hud(self, cid: int, old: str, new: str) -> None:
+        """任意 cell 状态变化 → 重算 HUD 三项计数。"""
+        self._refresh_hud_counts()
+
+    def _refresh_hud_counts(self) -> None:
+        """从 CellController 读最新计数 → 推送给 HomeDashboard HUD。"""
+        try:
+            controller = self._current_page.cell_controller
+            self._dashboard.set_counts(
+                controller.n_running(),
+                controller.n_paused(),
+                controller.n_stopped(),
+            )
+        except Exception as e:
+            _log.error(
+                "_refresh_hud_counts failed: %r", e, exc_info=True,
+            )

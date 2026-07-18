@@ -167,6 +167,10 @@ class Rack3DView(QWidget):
             elevation=CAMERA_ELEV,
             azimuth=CAMERA_AZIM,
         )
+        # Phase 3 fix：连 sigCameraChanged 让相机变化（拖拽/自动旋转/复位）
+        # 立即标记 _proj_dirty，下一次 _tick_hover / pick_led_at 自动重算 LED 屏幕坐标
+        if hasattr(self._gl, "sigCameraChanged"):
+            self._gl.sigCameraChanged.connect(self._on_camera_changed)
 
     def _compute_led_positions(self) -> np.ndarray:
         """生成 72 个 LED 的 3D 坐标。
@@ -366,6 +370,13 @@ class Rack3DView(QWidget):
         self._led_screen_pos = []
         view_w = self._gl.width()
         view_h = self._gl.height()
+        # Phase 3 fix：若 viewport 尺寸为 0，project 会失败，先记日志
+        if view_w <= 0 or view_h <= 0:
+            _log.warning(
+                "_refresh_led_screen_pos: gl viewport size=0 (%dx%d), skipped",
+                view_w, view_h,
+            )
+            return
         for pos3d in self._led_positions:
             try:
                 p2d = self._gl.project(pos3d)
@@ -375,9 +386,54 @@ class Rack3DView(QWidget):
                 else:
                     x, y = float(p2d[0]), float(p2d[1])
                 self._led_screen_pos.append((x, y))
-            except Exception:
+            except Exception as e:
+                # Phase 3 fix：原代码 silent except，违反项目记忆"禁止吞错"
+                _log.error(
+                    "_refresh_led_screen_pos: project failed at pos3d=%r: %r",
+                    pos3d, e, exc_info=True,
+                )
                 self._led_screen_pos.append((None, None))
         self._proj_dirty = False
+
+    def pick_led_at(self, pos) -> Optional[int]:
+        """Phase 3 fix：同步 ray-pick。
+
+        在指定屏幕坐标 pos 周围找最近 LED（< 28px 算命中）。
+        与 _tick_hover 共享 _led_screen_pos 缓存，确保 hover + click 一致。
+
+        解决了双击依赖 hover 缓存的脆弱性：
+        - 用户单击时立即 ray-pick（不再需要先悬停）
+        - 抗相机拖拽吃 dblclick 事件（单击 release 即可触发）
+        - 抗 50ms hover 定时器滞后
+
+        Args:
+            pos: QPointF-like（event.pos() / QCursor.pos()）
+
+        Returns:
+            命中的 cid (1..72)，未命中返回 None
+        """
+        # 若缓存失效（相机移动过），先刷新
+        if self._proj_dirty:
+            self._refresh_led_screen_pos()
+        # 缓存为空说明 widget 还没就绪，返回 None
+        if not self._led_screen_pos:
+            _log.debug(
+                "pick_led_at: _led_screen_pos empty, no LED to pick",
+            )
+            return None
+        THRESHOLD_PX = 28
+        px = float(pos.x()) if hasattr(pos, "x") else float(pos[0])
+        py = float(pos.y()) if hasattr(pos, "y") else float(pos[1])
+        best_cid: Optional[int] = None
+        best_dist = THRESHOLD_PX
+        for i, (x, y) in enumerate(self._led_screen_pos):
+            if x is None:
+                continue
+            d = ((px - x) ** 2 + (py - y) ** 2) ** 0.5
+            if d < best_dist:
+                best_dist = d
+                best_cid = i + 1
+        return best_cid
 
     def _tick_hover(self) -> None:
         """Phase A.8.3：QTimer 50ms 轮询检测鼠标位置，找最近 LED 显示 tooltip。
