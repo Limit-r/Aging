@@ -51,13 +51,6 @@ DETECTION_STATE_PAUSED = "已暂停"
 BUTTON_AREA_TITLE = "功能区  //  CONTROL"
 PANEL_NO_SELECTION_TEXT = "（请先点击数据卡片）"
 PANEL_SELECTION_TEMPLATE = "CH-{cid:02d}  //  {state}"
-BUTTON_LABELS = (
-    "开始检测",
-    "暂停检测",
-    "恢复暂停",
-    "结束检测",
-)
-BUTTON_GLYPHS = ("▶", "⏸", "▶", "■")
 
 # ---- 批量按钮区（v2：多选 + 批量控制） -------------------------------------
 BATCH_SECTION_TITLE = "── 批量 ──"
