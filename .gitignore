@@ -109,3 +109,31 @@ __archive__/
 # 临时提交信息（git commit -F 使用）
 # ============================================================
 commit_msg.txt
+
+# ============================================================
+# 临时诊断输出（根目录 · 2026-07-18 清理后补）
+# ============================================================
+# git diff 临时输出
+/*_diff.txt
+# 一次性诊断输出（根目录所有 .txt）
+# 范围：仅根目录的 .txt（/* 前缀限定），不影响 .trae/documents/*.md
+/*.txt
+# 根目录一次性 PowerShell 脚本（编码修复等）
+# 注：项目内 PowerShell 应放 scripts/ 目录
+/*.ps1
+
+# ============================================================
+# 一次性诊断 / 临时测试脚本（tests/ 下 · 2026-07-18 清理后补）
+# ============================================================
+# 一次性诊断（用完即弃）
+/tests/diag_*.py
+# 临时 fix 验证（fix-1, fix-2, fix-13, fix-14, fix-15 ...）
+/tests/test_fix*.py
+# 一次性交互测试（手动 / qtest / 临时调试）
+/tests/test_click_event.py
+/tests/test_dblclick_debug.py
+/tests/test_manual_dblclick.py
+/tests/test_led_pos.py
+/tests/test_qtest_click.py
+# 注：保留 tests/test_phase3_fix4.py / test_e2e_click.py /
+#     test_pick_accuracy.py / test_mvp_compare.py 作为正式回归测试
