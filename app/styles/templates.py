@@ -4,7 +4,7 @@
 模板**不**包含任何裸 hex / 字号 / 字体名——所有视觉量从 `tokens` 读取。
 """
 
-from app.core.tokens import DesignTokens
+from app.core.tokens import DesignTokens, rgba
 
 
 # ---- 主窗口背景 -------------------------------------------------------------
