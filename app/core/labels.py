@@ -48,6 +48,32 @@ DETECTION_STATE_PAUSED = "已暂停"
 DETECTION_STATE_UNKNOWN = "未知"   # 详情页 _state_text 兜底
 
 
+# ---- 检测状态 → 视觉/文本 统一映射（Phase 5 M7 合并） -----------------------
+# Phase 5 之前有 3 套独立映射：
+#   1) CellUIManager._STATE_TO_STATUS   （state → 视觉边框 status）
+#   2) DetailPage._state_text           （state → 中文显示文本）
+#   3) DetectionState enum              （state 自身）
+# 现在统一到本表：(state_value) → (visual_status, text_label)
+#   - visual_status: DataCell 边框 / 状态文字
+#   - text_label:    详情页 / 状态栏等用户可见文本
+from typing import NamedTuple
+
+
+class DetectionStatePresentation(NamedTuple):
+    """DetectionState 的统一表现层数据（视觉边框 + 文本）。"""
+    visual_status: str   # DataCell 视觉 status（"online" / "no_data" 等）
+    text_label: str      # 用户可见中文文本
+
+
+# 与 services/cell_controller.py DetectionState.value 一一对应
+# 键使用裸字符串而非 enum，避免循环依赖（labels 处于 core 层，DetectionState 在 services 层）
+DETECTION_STATE_PRESENTATION: dict[str, DetectionStatePresentation] = {
+    "stopped": DetectionStatePresentation("no_data", DETECTION_STATE_STOPPED),
+    "running": DetectionStatePresentation("online",  DETECTION_STATE_RUNNING),
+    "paused":  DetectionStatePresentation("online",  DETECTION_STATE_PAUSED),
+}
+
+
 # ---- 右侧按钮区 -------------------------------------------------------------
 BUTTON_AREA_TITLE = "功能区  //  CONTROL"
 PANEL_NO_SELECTION_TEXT = "（请先点击数据卡片）"

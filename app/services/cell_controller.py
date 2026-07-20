@@ -49,8 +49,6 @@ class CellController(QObject):
             cid: DetectionState.STOPPED for cid in range(1, total + 1)
         }
         self._counts = {"running": 0, "paused": 0, "stopped": total}
-        # 详情页「开始」触发的自定义倒计时秒数：apply 前写入，state_changed slot 内 take
-        self._pending_countdown: Dict[int, int] = {}
 
     # -- 查询 API ----------------------------------------------------------
     @property
@@ -78,19 +76,18 @@ class CellController(QObject):
         valid = set(_STATE_TRANSITIONS.get(action, {}).keys())
         return [cid for cid in cids if self._states.get(cid) in valid]
 
-    def take_pending_countdown(self, cid: int, default: int) -> int:
-        """取出某 cid 的自定义倒计时秒数（取后即清）。"""
-        return self._pending_countdown.pop(cid, default)
-
     # -- 写 API ------------------------------------------------------------
     def apply(
         self,
         action: str,
         cids: Iterable[int],
-        *,
-        countdown_seconds: Optional[int] = None,
     ) -> List[int]:
-        """对 cids 执行 action。返回成功转移的 cid 列表。"""
+        """对 cids 执行 action。返回成功转移的 cid 列表。
+
+        Phase 5 m4 改造：移除 `countdown_seconds` 参数与内部
+        `_pending_countdown` / `take_pending_countdown` 字段
+        （自 Phase 2 起即无外部调用者，留作历史负债）。
+        """
         transitions = _STATE_TRANSITIONS.get(action, {})
         transitioned: List[int] = []
         invalid: List[tuple[int, DetectionState]] = []
@@ -123,9 +120,6 @@ class CellController(QObject):
                 ),
                 note=f"成功转移 {len(transitioned)} 个 cell",
             )
-            if countdown_seconds is not None:
-                for cid in transitioned:
-                    self._pending_countdown[cid] = countdown_seconds
         # 收尾：聚合 invalid 日志
         if len(invalid) == 1:
             cid, old = invalid[0]

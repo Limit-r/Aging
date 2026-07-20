@@ -1,4 +1,4 @@
-"""硬编码集中治理 · 启动期扫描验证器（Phase 4-D）。
+"""硬编码集中治理 · 启动期扫描验证器（Phase 4-D / 5）。
 
 设计目标：
 - 启动时（configure_logging 之后、QApplication 启动之前）扫描全工程
@@ -13,10 +13,13 @@
 - QSS 字符串 → app.styles.templates
 - 其它路径出现以上内容 → 报告
 
-报告级别：
-- CRITICAL — 颜色字面量（hex / rgba）出现在非 tokens/templates 路径
-- WARNING — 数字字面量（>= 2 位）出现在 ui/widgets 路径
-- INFO    — 用户可见中文文本（>= 2 字符）出现在 ui/widgets 路径
+报告级别（按 Phase 5 扩展）：
+- CRITICAL — 颜色字面量（hex / rgba）、字体名字面量（QFont/ font-family 硬编码）、
+            QSS setStyleSheet 内联字面量
+- WARNING — 数字字面量（>= 2 位）出现在 ui/widgets 路径、
+            setProperty 字符串字面量值、硬编码绝对路径
+- INFO    — 用户可见中文文本（>= 2 字符）出现在 ui/widgets 路径、
+            time.sleep / asyncio.sleep 字面量
 """
 from __future__ import annotations
 
@@ -43,7 +46,9 @@ class HardcodeHit:
     path: str          # 相对 d:\Aging
     line: int
     severity: Severity
-    category: str      # "color_hex" / "color_rgba" / "numeric" / "text_user_visible" / "inline_qss"
+    category: str      # "color_hex" / "color_rgba" / "numeric" / "text_user_visible"
+                       # / "inline_qss" / "font_family" / "qss_property"
+                       # / "sleep_lit" / "path_lit" (Phase 5 扩展)
     snippet: str       # 该行原文（截断 80 字符）
     suggestion: str    # 建议替换为哪个 token / config / labels 项
 
@@ -61,6 +66,56 @@ INLINE_QSS_RE = re.compile(r'setStyleSheet\s*\(\s*[rf]?["\']{1,3}')
 NUMERIC_RE = re.compile(r"(?<![A-Za-z_\d])\d{2,}(?![A-Za-z_\d])")
 # 用户可见中文文本（>= 2 个连续汉字）
 USER_TEXT_RE = re.compile(r"[\u4e00-\u9fff]{2,}")
+
+# ---- Phase 5 扩展：4 个新扫描类别 -----------------------------------------
+# 字体名（Phase 5-E.1）：捕获裸字体名字面量
+#   - QFont("Consolas") / QFont("Microsoft YaHei")
+#   - font-family: "Consolas"; (CSS)
+# 注意：
+#   - 只匹配完整单词（前后需有非字母边界），避免 "timestamp" 误匹配 "Times"
+#   - "Microsoft YaHei" 内部含空格，用 (?<![A-Za-z0-9_]) 限定首字
+FONT_FAMILY_NAME = (
+    r"Consolas|Courier(?:\s+New)?|Monaco|Menlo|"
+    r"Microsoft\s+YaHei|MicrosoftYaHei|"
+    r"PingFang|Heiti|Songti|SimHei|SimSun|"
+    r"Helvetica|Arial|Verdana|Tahoma|Times(?:\s+New\s+Roman)?|"
+    r"Roboto|Segoe|Fira|Lato|Open\s+Sans"
+)
+# (?<![A-Za-z0-9_]) = 前一个字符非字母/数字/下划线
+# (?![\w]) = 后一个字符非字母/数字/下划线
+FONT_FAMILY_RE = re.compile(
+    r'(?:'
+    r'QFont\(\s*["\']' + FONT_FAMILY_NAME + r'["\']'                              # QFont("Consolas")
+    r'|font-family\s*:\s*["\']?' + FONT_FAMILY_NAME + r'["\']?\s*[;}]'  # CSS font-family: "..."
+    r')',
+    re.IGNORECASE,
+)
+# 在 _scan_line 中再过滤：FONT_FAMILY_RE.finditer 后用完整词边界再判断一次
+FONT_FAMILY_WORD_BOUNDARY = re.compile(
+    r'(?<![A-Za-z0-9_])(?:' + FONT_FAMILY_NAME + r')(?![A-Za-z0-9_])',
+    re.IGNORECASE,
+)
+
+# QSS setProperty 字符串字面量（Phase 5-E.1）
+#   - 捕获 setProperty("xxx", "literal_value") 中的字符串字面量值
+#   - 豁免常见 QSS 选择器 tag（true/false/right/left/...）在 _is_exempt 中处理
+QSS_PROPERTY_RE = re.compile(
+    r'setProperty\(\s*["\'][a-zA-Z_]+["\']\s*,\s*["\'][^"\']+["\']\s*\)'
+)
+
+# 异步 sleep 字面量（Phase 5-E.1）
+#   - time.sleep(2.5) / asyncio.sleep(1.0) → 应走 config.XXX
+#   - 注意：setInterval / setSingleShot 已有豁免（不同语义）
+SLEEP_LIT_RE = re.compile(
+    r'\b(?:time|asyncio)\.sleep\(\s*[\d.]+\s*\)'
+)
+
+# 硬编码绝对路径（Phase 5-E.1）
+#   - 形如 Path("d:/Aging/...") / open("d:/...")
+#   - 豁免 Path(__file__) 等相对路径（在 _is_exempt 中处理）
+PATH_LIT_RE = re.compile(
+    r'(?:Path|open)\(\s*["\'][a-zA-Z]:[\\/][^"\']+["\']\s*\)'
+)
 
 
 # ---- 白名单（豁免） ----------------------------------------------------------
@@ -265,6 +320,86 @@ def _is_exempt(
         # 4e) f"● ..."  状态栏 dot 前缀消息（典型 status bar 写法）
         if re.search(r"[\"']●\s*[\u4e00-\u9fff]", line_text):
             return True
+    # ---- Phase 5 扩展：4 个新类别豁免 ----------------------------------------
+
+    # 字体名（font_family）：
+    #   - 注释内
+    #   - 文档字符串内
+    #   - 引用了 tokens.Fonts.FAMILY_XXX（合法使用）
+    if category == "font_family":
+        if in_docstring:
+            return True
+        if stripped.startswith("#"):
+            return True
+        if (stripped.startswith('"""') or stripped.startswith("'''") or
+                stripped.startswith('r"""') or stripped.startswith("r'''")):
+            return True
+        # 引用 token 已是合法
+        if re.search(r"tokens\.Fonts\.|DEFAULT_TOKENS\.fonts\.|f\.FAMILY_", line_text):
+            return True
+        # 显式从 QFontDatabase 取（如 QFontDatabase().font(...)）也合法
+        if "QFontDatabase" in line_text or ".font(" in line_text:
+            return True
+
+    # QSS setProperty（qss_property）：
+    #   - 白名单 tag 值：true/false/right/left/top/bottom/center/normal/warning/error/info
+    #     /running/paused/stopped/online/offline/selected/closed/visible/hidden
+    #   - 这些是 QSS 状态选择器 tag，不算"硬编码用户可见文本"
+    if category == "qss_property":
+        if in_docstring:
+            return True
+        if stripped.startswith("#"):
+            return True
+        # 提取 setProperty 第二个参数值
+        m = re.search(
+            r'setProperty\(\s*["\'][a-zA-Z_]+["\']\s*,\s*["\']([^"\']+)["\']\s*\)',
+            line_text,
+        )
+        if m:
+            value = m.group(1).strip().lower()
+            # 白名单 QSS 状态 tag
+            if value in {
+                "true", "false", "right", "left", "top", "bottom", "center",
+                "normal", "warning", "error", "info", "running", "paused",
+                "stopped", "online", "offline", "selected", "closed",
+                "visible", "hidden", "active", "inactive", "enabled",
+                "disabled", "ledstrip", "rightside", "bottomright", "topleft",
+                "topright", "bottomleft", "leftside", "main", "side",
+                "on", "off", "open", "close",
+            }:
+                return True
+        # setProperty 第一个参数是对象名（QSS object name 模式）
+        #   setProperty("cellStatus", "online") 也算 tag
+        if re.search(r'setProperty\(\s*["\'](?:cell|state|status|side|level|theme)', line_text):
+            return True
+
+    # sleep 字面量（sleep_lit）：
+    #   - 注释 / 文档字符串
+    #   - 引用 config.XXX
+    if category == "sleep_lit":
+        if in_docstring:
+            return True
+        if stripped.startswith("#"):
+            return True
+        if re.search(r"config\.[A-Z_]+_MS", line_text):
+            return True
+        if re.search(r"DEFAULT_TOKENS\.|^[A-Z_]+_MS\s*=", stripped):
+            return True
+
+    # 硬编码绝对路径（path_lit）：
+    #   - 注释 / 文档字符串
+    #   - 引用 config.PATH_XXX / config.LOG_DIR 等
+    #   - 出现在测试/配置 fixture 中
+    if category == "path_lit":
+        if in_docstring:
+            return True
+        if stripped.startswith("#"):
+            return True
+        if re.search(r"config\.[A-Z_]+_DIR|config\.[A-Z_]+_PATH|config\.[A-Z_]+_FILE", line_text):
+            return True
+        # tests/ 目录下的 fixture 路径（如 "d:/Aging/tests/..."）豁免
+        if rel.startswith("tests/") or "/tests/" in rel:
+            return True
     return False
 
 
@@ -276,6 +411,11 @@ def _suggest(category: str) -> str:
         "inline_qss": "→ app.styles.templates.xxx (新增模板函数)",
         "numeric": "→ config.XXX 或 tokens.Sizing.XXX",
         "text_user_visible": "→ labels.XXX (新增用户可见文本常量)",
+        # ---- Phase 5 扩展建议 ----
+        "font_family": "→ tokens.Fonts.FAMILY_XXX (FAMILY_TITLE/FAMILY_DATA/FAMILY_MONO/FAMILY_BUTTON)",
+        "qss_property": "→ labels.STATE_XXX 或新增 token；若为 QSS tag 可保留并加 # noqa: hardcode",
+        "sleep_lit": "→ config.SLEEP_XXX_MS (新增到 config.py)",
+        "path_lit": "→ config.LOG_DIR / config.RESOURCE_DIR 等路径常量；或改用 Path(__file__).parent",
     }.get(category, "→ 待定")
 
 
@@ -346,6 +486,55 @@ def _scan_line(
                 category="text_user_visible", snippet=line_text[:80].rstrip(),
                 suggestion=_suggest("text_user_visible"),
             ))
+
+    # ---- Phase 5 扩展：4 个新扫描类别 -----------------------------------------
+
+    # 6) 字体名字面量 — CRITICAL（任何文件都查，避免 QFont / font-family 漏管）
+    #    使用完整词边界，避免 "timestamp" 误匹配 "Times" 这类子串
+    if FONT_FAMILY_WORD_BOUNDARY.search(line_text):
+        # 再确认确实是字体使用场景（QFont/font-family/qfont.database）
+        # 否则只是普通标识符含字体子串，不算硬编码
+        if (re.search(r'QFont\s*\(|font-family\s*:|QFontDatabase', line_text, re.IGNORECASE) or
+                re.search(r'["\']\s*' + FONT_FAMILY_NAME + r'["\']\s*[,\)]', line_text,
+                          re.IGNORECASE)):
+            if not _is_exempt(rel, line_text, line_no, "font_family", in_docstring):
+                hits.append(HardcodeHit(
+                    path=rel, line=line_no, severity=Severity.CRITICAL,
+                    category="font_family", snippet=line_text[:80].rstrip(),
+                    suggestion=_suggest("font_family"),
+                ))
+
+    # 7) QSS setProperty 字符串字面量 — WARNING（仅 ui/widgets 路径）
+    #    注意：仅当值不在白名单 QSS tag 内时才报告
+    if is_ui:
+        for m in QSS_PROPERTY_RE.finditer(line_text):
+            if _is_exempt(rel, line_text, line_no, "qss_property", in_docstring):
+                continue
+            hits.append(HardcodeHit(
+                path=rel, line=line_no, severity=Severity.WARNING,
+                category="qss_property", snippet=line_text[:80].rstrip(),
+                suggestion=_suggest("qss_property"),
+            ))
+
+    # 8) sleep 字面量 — INFO（time.sleep / asyncio.sleep）
+    for _m in SLEEP_LIT_RE.finditer(line_text):
+        if _is_exempt(rel, line_text, line_no, "sleep_lit", in_docstring):
+            continue
+        hits.append(HardcodeHit(
+            path=rel, line=line_no, severity=Severity.INFO,
+            category="sleep_lit", snippet=line_text[:80].rstrip(),
+            suggestion=_suggest("sleep_lit"),
+        ))
+
+    # 9) 硬编码绝对路径 — WARNING（任何文件都查）
+    for _m in PATH_LIT_RE.finditer(line_text):
+        if _is_exempt(rel, line_text, line_no, "path_lit", in_docstring):
+            continue
+        hits.append(HardcodeHit(
+            path=rel, line=line_no, severity=Severity.WARNING,
+            category="path_lit", snippet=line_text[:80].rstrip(),
+            suggestion=_suggest("path_lit"),
+        ))
 
 
 def scan(root: str = "app") -> List[HardcodeHit]:

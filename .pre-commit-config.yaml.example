@@ -1,0 +1,23 @@
+# pre-commit 配置示例（Phase 5 E-3）
+#
+# 使用方法：
+#   1. pip install pre-commit
+#   2. pre-commit install
+#   3. 之后每次 commit 自动运行扫描器
+#
+# 跳过本钩子：git commit --no-verify
+#
+# 详细文档：https://pre-commit.com/
+
+repos:
+  - repo: local
+    hooks:
+      - id: config-registry-scan
+        name: config_registry hardcode scan (CRITICAL gate)
+        entry: python tests/run_config_registry_scan.py --strict-critical
+        language: system
+        pass_filenames: false
+        always_run: true
+        # 仅在改动 app/ 时运行（性能优化）
+        files: ^app/.*\.py$
+        stages: [pre-commit]

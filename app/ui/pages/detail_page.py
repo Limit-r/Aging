@@ -259,98 +259,85 @@ class DetailPage(QWidget):
 
     @staticmethod
     def _state_text(state: DetectionState) -> str:
-        """DetectionState → 中文显示文本（统一走 labels.DETECTION_STATE_*）。"""
-        return {
-            DetectionState.RUNNING: labels.DETECTION_STATE_RUNNING,
-            DetectionState.PAUSED: labels.DETECTION_STATE_PAUSED,
-            DetectionState.STOPPED: labels.DETECTION_STATE_STOPPED,
-        }.get(state, labels.DETECTION_STATE_UNKNOWN)
+        """DetectionState → 中文显示文本（统一走 labels.DETECTION_STATE_PRESENTATION）。
+
+        Phase 5 M7 改造：原独立 dict 改为 labels.DETECTION_STATE_PRESENTATION 单一来源，
+        与 CellUIManager 共享同一张表。
+        """
+        presentation = labels.DETECTION_STATE_PRESENTATION.get(state.value)
+        if presentation is None:
+            return labels.DETECTION_STATE_UNKNOWN
+        return presentation.text_label
 
     # -- 槽函数 ---------------------------------------------------------------
     # 不使用 @safe_call 装饰：functools.wraps 不保留真实签名给 PyQt5 内省，
     # 签名不匹配时会被 safe_call 静默吞 TypeError → UI 无响应（项目记忆已记）。
-    # 改为内部 try/except 显式记录，确保错误能被定位。
+    # 关闭时序：closeEvent 先置 self._closing = True + stop 所有 timer，
+    # 再 super().closeEvent()，因此后续信号不会进入这些 slot → 不再需要
+    # 额外的 try/except RuntimeError 双重防御。
     def _on_history_append(self, reading: ChannelReading) -> None:
         """HistoryBuffer.appended 信号 → 标记 dirty（事件驱动）。"""
-        try:
-            if self._closing:
-                return
-            if reading.channel_id == self._cid:
-                self._dirty = True
-        except Exception as e:
-            _log.error("exception in _on_history_append: %r", e, exc_info=True)
+        if self._closing:
+            return
+        if reading.channel_id == self._cid:
+            self._dirty = True
 
     def _on_state_changed(self, cid: int, old_value: str, new_value: str) -> None:
         """CellController.state_changed → 更新 title + 异常检测开关。"""
-        try:
-            if self._closing or cid != self._cid:
-                return
-            self._refresh_title()
-            # 归零异常检测仅在 RUNNING 状态启用
-            if DetectionState(new_value) != DetectionState.RUNNING:
-                self._clear_anomaly_segments()
-        except Exception as e:
-            _log.error("exception in _on_state_changed: %r", e, exc_info=True)
+        if self._closing or cid != self._cid:
+            return
+        self._refresh_title()
+        # 归零异常检测仅在 RUNNING 状态启用
+        if DetectionState(new_value) != DetectionState.RUNNING:
+            self._clear_anomaly_segments()
 
     def _tick_chart(self) -> None:
         """5fps 兜底 tick：无 dirty 直接返回，否则重绘。"""
-        try:
-            if self._closing or not self._dirty or self._cid == 0:
-                return
-            self._render_chart()
-            self._dirty = False
-        except Exception as e:
-            _log.error("exception in _tick_chart: %r", e, exc_info=True)
+        if self._closing or not self._dirty or self._cid == 0:
+            return
+        self._render_chart()
+        self._dirty = False
 
     def _on_sample(self) -> None:
         """30s 周期采样日志。"""
-        try:
-            if self._closing or self._cid == 0:
-                return
-            ts, currents = self._history.snapshot(self._cid)
-            n = len(ts)
-            # 是否有归零段（I1 通道 < 0.1A 算归零）
-            zero_anomaly = False
-            if currents and len(currents) > 0 and currents[0]:
-                zero_anomaly = any(v < self._ZERO_ANOMALY_A for v in currents[0])
-            narrative.event(
-                "detail_tick_sample",
-                cid=self._cid,
-                points=n,
-                zero_anomaly=zero_anomaly,
-                note="30s 周期采样",
-            )
-        except Exception as e:
-            _log.error("exception in _on_sample: %r", e, exc_info=True)
+        if self._closing or self._cid == 0:
+            return
+        ts, currents = self._history.snapshot(self._cid)
+        n = len(ts)
+        # 是否有归零段（I1 通道 < 0.1A 算归零）
+        zero_anomaly = False
+        if currents and len(currents) > 0 and currents[0]:
+            zero_anomaly = any(v < self._ZERO_ANOMALY_A for v in currents[0])
+        narrative.event(
+            "detail_tick_sample",
+            cid=self._cid,
+            points=n,
+            zero_anomaly=zero_anomaly,
+            note="30s 周期采样",
+        )
 
     def _on_back_clicked(self) -> None:
-        try:
-            if self._closing:
-                return
-            narrative.event(
-                "detail_page_close",
-                cid=self._cid,
-                reason="back_button",
-                note="用户点击返回主页",
-            )
-            self.requested_back.emit()
-        except Exception as e:
-            _log.error("exception in _on_back_clicked: %r", e, exc_info=True)
+        if self._closing:
+            return
+        narrative.event(
+            "detail_page_close",
+            cid=self._cid,
+            reason="back_button",
+            note="用户点击返回主页",
+        )
+        self.requested_back.emit()
 
     def _on_action_clicked(self, action: str) -> None:
-        try:
-            if self._closing or self._cid == 0:
-                return
-            narrative.event(
-                "detail_action",
-                actor="user",
-                action=action,
-                cid=self._cid,
-                note=f"用户在 {format_cid(self._cid)} 详情页点击 {action}",
-            )
-            self.action_requested.emit(action, self._cid)
-        except Exception as e:
-            _log.error("exception in _on_action_clicked: %r", e, exc_info=True)
+        if self._closing or self._cid == 0:
+            return
+        narrative.event(
+            "detail_action",
+            actor="user",
+            action=action,
+            cid=self._cid,
+            note=f"用户在 {format_cid(self._cid)} 详情页点击 {action}",
+        )
+        self.action_requested.emit(action, self._cid)
 
     # -- 渲染 -----------------------------------------------------------------
     def _render_chart(self) -> None:
