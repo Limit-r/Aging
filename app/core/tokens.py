@@ -307,3 +307,36 @@ def rgba(color: str, alpha: int) -> str:
     if not (0 <= alpha <= 255):
         raise ValueError(f"rgba() alpha must be 0-255, got {alpha}")
     return f"rgba({r}, {g}, {b}, {alpha})"
+
+
+def rgba_from_tuple(rgb_or_rgba, alpha: int = None) -> str:
+    """tuple 形式颜色 → rgba 字符串（用于 LED 状态色等 (R, G, B[, A]) 形式 token）。
+
+    Args:
+        rgb_or_rgba: 3-tuple (R, G, B) 或 4-tuple (R, G, B, A)
+        alpha: 覆盖 alpha（None = 用 tuple 内的 A；0-255）
+
+    Returns:
+        形如 "rgba(16, 255, 161, 0.95)" 的字符串
+
+    Example:
+        >>> rgba_from_tuple(c.LED_RUNNING, 0.95)  # 强制 0.95 alpha
+        'rgba(16, 255, 161, 0.95)'
+        >>> rgba_from_tuple(c.LED_OFFLINE)  # 用 tuple 内置 alpha
+        'rgba(60, 70, 90, 180)'  # 注意：0-255 整数 alpha
+    """
+    if len(rgb_or_rgba) == 3:
+        r, g, b = rgb_or_rgba
+        a = alpha if alpha is not None else 255
+    elif len(rgb_or_rgba) == 4:
+        r, g, b, a_default = rgb_or_rgba
+        a = alpha if alpha is not None else a_default
+    else:
+        raise ValueError(
+            f"rgba_from_tuple() expects 3-tuple or 4-tuple, got len={len(rgb_or_rgba)}"
+        )
+    # alpha 既支持 0-255 整数（QSS 规范）也支持 0-1 浮点（CSS3 扩展）
+    # 这里统一输出整数（QSS 兼容最好）；若 a 是 0-1 浮点自动 *255
+    if isinstance(a, float) and 0.0 <= a <= 1.0:
+        a = int(a * 255)
+    return f"rgba({r}, {g}, {b}, {a})"

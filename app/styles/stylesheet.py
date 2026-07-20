@@ -27,6 +27,7 @@ class StylesheetBuilder:
             T.nav_bar(tokens),
             T.floater(tokens),
             T.reset_view_button(tokens),
+            T.led_dot(tokens),
         ))
 
 

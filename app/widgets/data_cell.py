@@ -141,7 +141,7 @@ class HeaderBar(QWidget):
         self._id_label = QLabel(format_cid(cell_id))
         self._id_label.setObjectName("cellId")
 
-        self._status_label = QLabel("● ON")
+        self._status_label = QLabel(labels.STATUS_ONLINE_TEXT)
         self._status_label.setObjectName("cellStatus")
         self._status_label.setStyleSheet(f"color: {config.COLOR_TEXT_OK};")
 

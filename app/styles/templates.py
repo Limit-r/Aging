@@ -909,3 +909,34 @@ QPushButton#resetViewButton:pressed {{
     color: {c.BG_DEEP};
 }}
 """
+
+
+# ---- 浮窗 LED 状态点（RightLEDStripFloater 内 72 个 dot，状态色动态切换） ----
+# Phase 5 收口：把原本在 floaters.py 内的 3 处动态 setStyleSheet 迁到 QSS 属性选择器
+#   - setObjectName("ledDot") + setProperty("ledState", "running")
+#   - 此处根据 ledState 属性匹配不同颜色（无字面量）
+def led_dot(t: DesignTokens) -> str:
+    """浮窗 LED 状态点（按 ledState 属性动态着色）。"""
+    from app.core.tokens import rgba_from_tuple
+    c = t.colors
+    return f"""
+QLabel#ledDot {{
+    color: {rgba_from_tuple(c.LED_OFFLINE, 0.6)};
+    background: transparent;
+}}
+QLabel#ledDot[ledState="offline"] {{
+    color: {rgba_from_tuple(c.LED_OFFLINE, 0.6)};
+}}
+QLabel#ledDot[ledState="running"] {{
+    color: {rgba_from_tuple(c.LED_RUNNING, 0.95)};
+}}
+QLabel#ledDot[ledState="paused"] {{
+    color: {rgba_from_tuple(c.LED_PAUSED, 0.95)};
+}}
+QLabel#ledDot[ledState="alert"] {{
+    color: {rgba_from_tuple(c.LED_ALERT, 0.95)};
+}}
+QLabel#ledDot[ledState="warning"] {{
+    color: {rgba_from_tuple(c.LED_WARNING, 0.95)};
+}}
+"""

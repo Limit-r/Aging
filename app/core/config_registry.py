@@ -127,9 +127,10 @@ DEFINITION_FILES = {
     "app/core/config_registry.py",   # 自身（验证器中含字面量是预期）
 }
 
-# QSS 模板与样式入口（允许集中色字面量）
+# QSS 模板与样式入口
+#  - stylesheet.py: 合并入口（仅做组合，应豁免）
+#  - templates.py: 不再豁免（Phase 5 收口后已实测 0 裸 hex/rgba，强制 token 化）
 STYLE_FILES = {
-    "app/styles/templates.py",
     "app/styles/stylesheet.py",
 }
 

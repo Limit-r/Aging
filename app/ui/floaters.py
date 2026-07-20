@@ -161,15 +161,10 @@ class RightLEDStripFloater(QFrame):
 
         # 8 行 × 9 列
         self._cell_labels: List[QLabel] = []
-        c = DEFAULT_TOKENS.colors
-        # LED 状态 → CSS 背景色（rgba）
-        self._color_map = {
-            "offline": f"rgba({c.LED_OFFLINE[0]}, {c.LED_OFFLINE[1]}, {c.LED_OFFLINE[2]}, 0.6)",
-            "running": f"rgba({c.LED_RUNNING[0]}, {c.LED_RUNNING[1]}, {c.LED_RUNNING[2]}, 0.95)",
-            "paused":  f"rgba({c.LED_PAUSED[0]}, {c.LED_PAUSED[1]}, {c.LED_PAUSED[2]}, 0.95)",
-            "alert":   f"rgba({c.LED_ALERT[0]}, {c.LED_ALERT[1]}, {c.LED_ALERT[2]}, 0.95)",
-            "warning": f"rgba({c.LED_WARNING[0]}, {c.LED_WARNING[1]}, {c.LED_WARNING[2]}, 0.95)",
-        }
+        # LED 状态 → setProperty("ledState", state)
+        # 颜色由 templates.led_dot() 的 QSS 属性选择器按 [ledState="xxx"] 匹配
+        # 避免运行时动态 setStyleSheet 字面量注入（Phase 5 收口）
+        self._valid_states = ("offline", "running", "paused", "alert", "warning")
 
         for row in range(config.GRID_ROWS):
             row_layout = QHBoxLayout()
@@ -184,14 +179,13 @@ class RightLEDStripFloater(QFrame):
             # 9 个小圆点
             for col in range(config.GRID_COLS):
                 dot = QLabel("●")
+                dot.setObjectName("ledDot")
                 dot.setFixedSize(
                     _S.FLOATER_LED_DOT_SIZE, _S.FLOATER_LED_DOT_SIZE,
                 )
                 dot.setAlignment(Qt.AlignCenter)
-                # 初始：offline 灰
-                dot.setStyleSheet(
-                    f"color: {self._color_map['offline']}; background: transparent;"
-                )
+                # 初始：offline 灰（属性由 QSS 选择器匹配）
+                dot.setProperty("ledState", "offline")
                 self._cell_labels.append(dot)
                 row_layout.addWidget(dot)
             row_layout.addStretch(1)
@@ -201,21 +195,26 @@ class RightLEDStripFloater(QFrame):
         self.set_led_state_all("offline")
 
     def set_led_state(self, cid: int, state: str) -> None:
-        """更新单个 LED 状态色（cid 1..72）。"""
+        """更新单个 LED 状态色（cid 1..72）。
+
+        通过 setProperty("ledState", state) 触发 QSS 重绘。
+        颜色由 templates.led_dot() 的属性选择器决定。
+        """
         if cid < 1 or cid > len(self._cell_labels):
             return
-        color = self._color_map.get(state, self._color_map["offline"])
-        self._cell_labels[cid - 1].setStyleSheet(
-            f"color: {color}; background: transparent;"
-        )
+        if state not in self._valid_states:
+            state = "offline"
+        self._cell_labels[cid - 1].setProperty("ledState", state)
+        # 强制刷新 style（QSS 属性选择器需要 unpolish/polish）
+        self._cell_labels[cid - 1].style().unpolish(self._cell_labels[cid - 1])
+        self._cell_labels[cid - 1].style().polish(self._cell_labels[cid - 1])
 
     def set_led_state_all(self, state: str) -> None:
         """批量设置所有点同一状态。"""
+        if state not in self._valid_states:
+            state = "offline"
         for lbl in self._cell_labels:
-            color = self._color_map.get(state, self._color_map["offline"])
-            lbl.setStyleSheet(
-                f"color: {color}; background: transparent;"
-            )
+            lbl.setProperty("ledState", state)
 
     def set_led_state_batch(self, state_map) -> None:
         """批量设置多个点（state_map: {cid: state}）。"""
