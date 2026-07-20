@@ -93,6 +93,31 @@ class Colors:
     LED_SELECTED: tuple = (255, 255, 255, 255)  # 选中态白（叠加层）
     LED_HOVER: tuple = (200, 220, 255, 200)     # hover 高亮
 
+    # ---- 浅色变体（深色背景下的浅色文字/边框/渐变末端）--------------------
+    # Phase 4-A：从 templates.py 抽离的 4 个裸 hex 角色色
+    TEXT_DANGER_LIGHT: str = "#ffd0d8"           # 危险态浅色（深色背景下红按钮 hover 文字）
+    BORDER_DANGER_LIGHT: str = "#ff5a78"         # 危险态浅边框（danger 按钮 hover 边框）
+    PROGRESS_CHUNK_WARNING_LIGHT: str = "#ffd166" # 警告渐变末端（warning 进度条高亮段尾）
+    PROGRESS_CHUNK_EXPIRED_LIGHT: str = "#ff7090" # 归零渐变末端（expired 进度条高亮段尾）
+
+    # ---- 渐变半透明色（用于 qlineargradient 端点）-------------------------
+    # Phase 4-A：从 templates.py 抽离的 rgba 字面量
+    GRADIENT_RUNNING_START: str = "rgba(16, 255, 161, 90)"   # 运行态渐变起（绿）
+    GRADIENT_RUNNING_END: str = "rgba(16, 200, 130, 70)"     # 运行态渐变末（深绿）
+    GRADIENT_RUNNING_BORDER: str = "rgba(16, 255, 161, 110)" # 运行态边框（绿半透明）
+    GRADIENT_ALERT_BG_START: str = "rgba(80, 18, 36, 200)"   # 告警背景渐变起（深红）
+    GRADIENT_ALERT_BG_END: str = "rgba(40, 8, 18, 200)"      # 告警背景渐变末（更深红）
+    GRADIENT_ALERT_BG_HOVER_START: str = "rgba(120, 30, 50, 220)"  # 告警 hover 起
+    GRADIENT_ALERT_BG_HOVER_END: str = "rgba(60, 12, 24, 220)"     # 告警 hover 末
+
+    # ---- 光晕蓝（74,217,255 多 alpha 复用）--------------------------------
+    # 用于垂直分割线 / 批量段标题 / 边框等需要"淡淡发光蓝"的场景
+    GLOW_LIGHT_CYAN_LOW: str = "rgba(74, 217, 255, 0)"     # 渐变两端透明
+    GLOW_LIGHT_CYAN_MID: str = "rgba(74, 217, 255, 80)"    # 渐变中段
+    GLOW_LIGHT_CYAN_HIGH: str = "rgba(74, 217, 255, 140)"  # hover 中段
+    GLOW_LIGHT_CYAN_BORDER: str = "rgba(74, 217, 255, 60)" # 边框
+    GLOW_LIGHT_CYAN_ALERT: str = "rgba(255, 59, 92, 100)"  # 告警叠加（注意：实际是红色系，命名沿用方案）
+
 
 @dataclass(frozen=True)
 class Fonts:
@@ -192,3 +217,37 @@ class DesignTokens:
 
 # 全局默认 token 实例（绝大多数场景直接用这个）
 DEFAULT_TOKENS: DesignTokens = DesignTokens.default()
+
+
+# ---- rgba 工具：把 #RRGGBB 转 rgba(R, G, B, alpha) -----------------------------
+# 用途：消除 templates.py 中"同色不同 alpha"重复（如 rgba(0,191,255,30/40/50)）
+# 设计：与 frozen dataclass 平级的模块级函数，避免污染 token 体系
+def rgba(color: str, alpha: int) -> str:
+    """token 化 rgba 工具。
+
+    Args:
+        color: 形如 "#00bfff" 的 hex 字符串（必须 7 字符，含 #）
+        alpha: 0-255 的整数透明度
+
+    Returns:
+        形如 "rgba(0, 191, 255, 50)" 的字符串，可直接嵌入 QSS
+
+    Example:
+        >>> rgba("#00bfff", 50)
+        'rgba(0, 191, 255, 50)'
+        >>> rgba(c.BORDER_PRIMARY, 30)  # 在 f-string 中使用
+        'rgba(0, 191, 255, 30)'
+    """
+    if not (isinstance(color, str) and color.startswith("#") and len(color) == 7):
+        raise ValueError(
+            f"rgba() expects '#RRGGBB' format (7 chars), got {color!r}"
+        )
+    try:
+        r = int(color[1:3], 16)
+        g = int(color[3:5], 16)
+        b = int(color[5:7], 16)
+    except ValueError as e:
+        raise ValueError(f"rgba() failed to parse {color!r}: {e}") from e
+    if not (0 <= alpha <= 255):
+        raise ValueError(f"rgba() alpha must be 0-255, got {alpha}")
+    return f"rgba({r}, {g}, {b}, {alpha})"

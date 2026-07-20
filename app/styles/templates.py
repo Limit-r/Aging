@@ -39,7 +39,7 @@ QFrame#currentToolbar {{
         x1:0, y1:0, x2:0, y2:1,
         stop:0 {c.BG_TITLE_BAR}, stop:1 {c.BG_DEEP});
     border-bottom: 1px solid {c.BORDER_PRIMARY};
-    border-top: 1px solid rgba(0, 191, 255, 40);
+    border-top: 1px solid {rgba(c.BORDER_PRIMARY, 40)};
 }}
 
 QLabel#currentTitle {{
@@ -63,7 +63,7 @@ QSplitter#currentSplitter {{
 }}
 
 QSplitter#currentSplitter::handle {{
-    background-color: rgba(0, 191, 255, 50);
+    background-color: {rgba(c.BORDER_PRIMARY, 50)};
 }}
 
 QScrollArea#cellGridScroll {{
@@ -90,7 +90,7 @@ QLabel#detailTitle {{
     letter-spacing: 2px;
     background: transparent;
     padding-bottom: 8px;
-    border-bottom: 1px dashed rgba(0, 191, 255, 50);
+    border-bottom: 1px dashed {rgba(c.BORDER_PRIMARY, 50)};
 }}
 
 QLabel#detailPlaceholder {{
@@ -108,7 +108,7 @@ QLabel#detailInfo {{
     font-size: 10pt;
     background: transparent;
     padding: 8px;
-    border-top: 1px dashed rgba(0, 191, 255, 30);
+    border-top: 1px dashed {rgba(c.BORDER_PRIMARY, 30)};
 }}
 
 QFrame#detailValueBox {{
@@ -157,7 +157,7 @@ QLabel#selectionCount {{
     padding: 2px 8px;
     border: 1px solid {c.BORDER_PRIMARY};
     border-radius: 4px;
-    background-color: rgba(0, 191, 255, 30);
+    background-color: {rgba(c.BORDER_PRIMARY, 30)};
 }}
 
 /* 批量按钮（Phase A.8） */
@@ -193,7 +193,7 @@ QLabel#hoverTooltip {{
     font-family: {f.FAMILY_DATA};
     font-size: 10pt;
     font-weight: bold;
-    background-color: rgba(10, 15, 28, 220);
+    background-color: {rgba(c.BG_BASE, 220)};
     border: 1px solid {c.BORDER_PRIMARY};
     border-radius: 4px;
     padding: 4px 8px;
@@ -281,10 +281,10 @@ QWidget#dataCell[expired_pending="on"] {{
     border: 3px solid {c.TEXT_NEON_GREEN};
     background-color: qlineargradient(
         x1:0, y1:0, x2:0, y2:1,
-        stop:0 rgba(16, 255, 161, 90), stop:1 rgba(16, 200, 130, 70));
+        stop:0 {c.GRADIENT_RUNNING_START}, stop:1 {c.GRADIENT_RUNNING_END});
 }}
 QWidget#dataCell[expired_pending="off"] {{
-    border: 2px solid rgba(16, 255, 161, 110);
+    border: 2px solid {c.GRADIENT_RUNNING_BORDER};
 }}
 QWidget#dataCell[expired_pending="on"][selected="true"] {{
     border: 3px solid {c.TEXT_NEON_GREEN};
@@ -422,7 +422,7 @@ QPushButton:disabled {{
 QPushButton[role="danger"] {{
     background-color: qlineargradient(
         x1:0, y1:0, x2:0, y2:1,
-        stop:0 rgba(80, 18, 36, 200), stop:1 rgba(40, 8, 18, 200));
+        stop:0 {c.GRADIENT_ALERT_BG_START}, stop:1 {c.GRADIENT_ALERT_BG_END});
     color: {c.TEXT_DANGER};
     border: 2px solid {c.BORDER_DANGER};
     border-radius: 6px;
@@ -437,9 +437,9 @@ QPushButton[role="danger"] {{
 QPushButton[role="danger"]:hover {{
     background-color: qlineargradient(
         x1:0, y1:0, x2:0, y2:1,
-        stop:0 rgba(120, 30, 50, 220), stop:1 rgba(60, 12, 24, 220));
-    color: #ffd0d8;
-    border: 2px solid #ff5a78;
+        stop:0 {c.GRADIENT_ALERT_BG_HOVER_START}, stop:1 {c.GRADIENT_ALERT_BG_HOVER_END});
+    color: {c.TEXT_DANGER_LIGHT};
+    border: 2px solid {c.BORDER_DANGER_LIGHT};
 }}
 QPushButton[role="danger"]:pressed {{
     background-color: {c.BORDER_DANGER};
@@ -457,11 +457,11 @@ def vline(t: DesignTokens) -> str:
 QFrame#vline {{
     background-color: qlineargradient(
         x1:0, y1:0, x2:1, y2:0,
-        stop:0   rgba(74, 217, 255, 0),
-        stop:0.4 rgba(74, 217, 255, 80),
+        stop:0   {c.GLOW_LIGHT_CYAN_LOW},
+        stop:0.4 {c.GLOW_LIGHT_CYAN_MID},
         stop:0.5 {c.BORDER_HOVER},
-        stop:0.6 rgba(74, 217, 255, 80),
-        stop:1   rgba(74, 217, 255, 0)
+        stop:0.6 {c.GLOW_LIGHT_CYAN_MID},
+        stop:1   {c.GLOW_LIGHT_CYAN_LOW}
     );
     min-width: {s.VLINE_TOTAL_W}px;
     max-width: {s.VLINE_TOTAL_W}px;
@@ -473,11 +473,11 @@ QFrame#vline {{
 QFrame#vline:hover {{
     background-color: qlineargradient(
         x1:0, y1:0, x2:1, y2:0,
-        stop:0   rgba(74, 217, 255, 0),
-        stop:0.4 rgba(74, 217, 255, 140),
+        stop:0   {c.GLOW_LIGHT_CYAN_LOW},
+        stop:0.4 {c.GLOW_LIGHT_CYAN_HIGH},
         stop:0.5 {c.BORDER_HOVER},
-        stop:0.6 rgba(74, 217, 255, 140),
-        stop:1   rgba(74, 217, 255, 0)
+        stop:0.6 {c.GLOW_LIGHT_CYAN_HIGH},
+        stop:1   {c.GLOW_LIGHT_CYAN_LOW}
     );
 }}
 """
@@ -543,11 +543,11 @@ QLabel#batchSectionTitle {{
     letter-spacing: 1px;
     background: transparent;
     padding: 8px 0 2px 0;
-    border-top: 1px dashed rgba(74, 217, 255, 60);
+    border-top: 1px dashed {c.GLOW_LIGHT_CYAN_BORDER};
 }}
 QLabel#batchSectionTitle[danger="true"] {{
     color: {c.TEXT_DANGER};
-    border-top-color: rgba(255, 59, 92, 100);
+    border-top-color: {c.GLOW_LIGHT_CYAN_ALERT};
 }}
 QLabel#panelSelection {{
     color: {c.BORDER_PRIMARY};
@@ -690,11 +690,11 @@ QProgressBar#countdownProgress[state="running"]::chunk {{
 QProgressBar#countdownProgress[state="warning"]::chunk {{
     background-color: qlineargradient(
         x1:0, y1:0, x2:1, y2:0,
-        stop:0 {c.PROGRESS_CHUNK_WARNING}, stop:1 #ffd166);
+        stop:0 {c.PROGRESS_CHUNK_WARNING}, stop:1 {c.PROGRESS_CHUNK_WARNING_LIGHT});
 }}
 QProgressBar#countdownProgress[state="expired"]::chunk {{
     background-color: qlineargradient(
         x1:0, y1:0, x2:1, y2:0,
-        stop:0 {c.PROGRESS_CHUNK_EXPIRED}, stop:1 #ff7090);
+        stop:0 {c.PROGRESS_CHUNK_EXPIRED}, stop:1 {c.PROGRESS_CHUNK_EXPIRED_LIGHT});
 }}
 """
