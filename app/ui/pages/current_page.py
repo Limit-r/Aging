@@ -30,7 +30,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton, QSizePolicy,
 )
 
-from app.core import config
+from app.core import config, labels
 from app.core.tokens import DEFAULT_TOKENS
 from app.data.demo_source import DemoDataSource
 from app.data.history_buffer import HistoryBuffer
@@ -67,17 +67,17 @@ class CurrentToolbar(QFrame):
         layout.setSpacing(_S.TOOLBAR_SPACING)
 
         # 左：标题
-        title = QLabel("⚡ 电流检测  ·  CURRENT DETECTION")
+        title = QLabel(labels.TOOLBAR_TITLE)
         title.setObjectName("currentTitle")
         layout.addWidget(title)
 
         layout.addSpacing(_S.TOOLBAR_GAP)
 
         # 中：批量按钮
-        self._btn_start = self._make_btn("▶ 启动", "btnBatch")
-        self._btn_pause = self._make_btn("⏸ 暂停", "btnBatch")
-        self._btn_stop = self._make_btn("■ 停止", "btnBatch")
-        self._btn_clear = self._make_btn("✕ 清空", "btnBatch")
+        self._btn_start = self._make_btn(labels.TOOLBAR_BTN_START_LABEL, "btnBatch")
+        self._btn_pause = self._make_btn(labels.TOOLBAR_BTN_PAUSE_LABEL, "btnBatch")
+        self._btn_stop = self._make_btn(labels.TOOLBAR_BTN_STOP_LABEL, "btnBatch")
+        self._btn_clear = self._make_btn(labels.TOOLBAR_BTN_CLEAR_LABEL, "btnBatch")
         self._btn_start.clicked.connect(lambda: self.action_requested.emit("start"))
         self._btn_pause.clicked.connect(lambda: self.action_requested.emit("pause"))
         self._btn_stop.clicked.connect(lambda: self.action_requested.emit("stop"))
@@ -90,7 +90,7 @@ class CurrentToolbar(QFrame):
         layout.addStretch(1)
 
         # 右：选区计数
-        self._selection_label = QLabel("已选 0")
+        self._selection_label = QLabel(labels.TOOLBAR_SELECTION_TEMPLATE.format(n=0))
         self._selection_label.setObjectName("selectionCount")
         layout.addWidget(self._selection_label)
 
@@ -111,7 +111,7 @@ class CurrentToolbar(QFrame):
         return b
 
     def update_selection(self, n: int) -> None:
-        self._selection_label.setText(f"已选 {n}")
+        self._selection_label.setText(labels.TOOLBAR_SELECTION_TEMPLATE.format(n=n))
         # 选区为空时禁用 start/pause/stop
         has = n > 0
         self._btn_start.setEnabled(has)

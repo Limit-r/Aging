@@ -48,7 +48,9 @@ COUNTDOWN_WARNING_THRESHOLD_S = 60            # 剩余 ≤60s 进入 warning 状
 LOG_DIR = "logs"
 LOG_LEVEL = "DEBUG"  # DEBUG / INFO / WARNING / ERROR / CRITICAL
 LOG_STATUS_BAR_TTL_MS = 5000  # 状态栏错误提示持续时间
-LOG_ERROR_BADGE_MAX = 99     # 错误计数 badge 最大显示值
+# ---- 3D 视图交互反馈 --------------------------------------------------------
+LED_FLASH_MS = 200             # 双击 LED → 详情页的视觉闪烁时长
+PAGE_CHANGED_STATUS_MS = 2000  # 页面切换时状态栏消息持续时长
 
 # ---- 通道状态 → 文本颜色映射（用于 inline QSS） -----------------------------
 # 注：这些值在 DataCell 头部状态文字需要 inline setStyleSheet；

@@ -37,6 +37,7 @@ from PyQt5.QtWidgets import (
 from pyqtgraph import Vector
 
 from app.core import config, labels
+from app.core.tokens import DEFAULT_TOKENS
 from app.observability import get_logger, narrative
 from app.ui.floaters import (
     RightAlertsFloater,
@@ -141,7 +142,7 @@ class HomeDashboard(QWidget):
         if w <= 0 or h <= 0:
             return
         right_x = w - _FLOAT_PADDING
-        gap = 14  # 浮窗间距
+        gap = DEFAULT_TOKENS.sizing.FLOATER_STACK_GAP  # 浮窗间距
         # 从上往下垂直堆叠：复位按钮 → 告警 → LED 矩阵 → HUD
         y = _FLOAT_PADDING
         # 1) 复位按钮（不显眼，最顶部）
@@ -254,7 +255,7 @@ class HomeDashboard(QWidget):
         实际路由切换由 HomePage 完成（持有 router 引用），这里只发信号。
         """
         # Phase 3 C1：双击视觉反馈（200ms LED 闪烁）
-        self._rack.flash_led_alert(cid, duration_ms=200)
+        self._rack.flash_led_alert(cid, duration_ms=config.LED_FLASH_MS)
         self._azimuth_offset_before_detail = self._azimuth_offset
         # 暂停自动旋转（避免详情页打开后视图还在跳）
         self.set_auto_rotate(False)
@@ -421,7 +422,7 @@ class HomePage(QMainWindow):
     def _on_page_changed(self, key: str) -> None:
         """页面切换：状态栏提示。"""
         self._status_bar.showMessage(
-            f"● 切换到页面：{key}", 2000,
+            f"● 切换到页面：{key}", config.PAGE_CHANGED_STATUS_MS,
         )
         _log.info("page changed: %s", key)
 

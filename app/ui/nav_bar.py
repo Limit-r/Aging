@@ -108,7 +108,7 @@ class TopNavBar(QWidget):
         layout.addStretch(1)
 
         # 右侧版本号
-        version = QLabel("v3.0")
+        version = QLabel(labels.NAV_VERSION_TEXT)
         version.setObjectName("navVersion")
         version.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
         layout.addWidget(version)

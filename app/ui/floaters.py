@@ -155,7 +155,7 @@ class RightLEDStripFloater(QFrame):
         layout.setSpacing(_S.FLOATER_LED_SPACING)
 
         # 标题
-        title = QLabel("● 状态矩阵  //  STATUS MATRIX")
+        title = QLabel(labels.LED_MATRIX_TITLE)
         title.setObjectName("floaterTitle")
         layout.addWidget(title)
 
@@ -232,7 +232,7 @@ class ResetViewButton(QPushButton):
     clicked_reset = pyqtSignal()  # HomeDashboard 监听，触发相机复位
 
     def __init__(self, parent: Optional[QFrame] = None):
-        super().__init__("⟲  复位视角", parent)
+        super().__init__(labels.RESET_BTN_TEXT, parent)
         self.setObjectName("resetViewButton")
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedSize(
@@ -240,5 +240,5 @@ class ResetViewButton(QPushButton):
             DEFAULT_TOKENS.sizing.RESET_BTN_H,
         )
         # QSS 由 templates.reset_view_button() 全局接管
-        self.setToolTip("把 3D 视角复位到初始位置（不打断数据）")
+        self.setToolTip(labels.RESET_BTN_TOOLTIP)
         self.clicked.connect(self.clicked_reset.emit)

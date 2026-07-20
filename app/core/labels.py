@@ -45,6 +45,7 @@ STATUS_OFFLINE_TEXT = "○ OFF"
 DETECTION_STATE_STOPPED = "已停止"
 DETECTION_STATE_RUNNING = "运行中"
 DETECTION_STATE_PAUSED = "已暂停"
+DETECTION_STATE_UNKNOWN = "未知"   # 详情页 _state_text 兜底
 
 
 # ---- 右侧按钮区 -------------------------------------------------------------
@@ -214,3 +215,26 @@ DETAIL_ACTION_LABELS = (
     DETAIL_ACTION_RESUME_TEXT,
     DETAIL_ACTION_STOP_TEXT,
 )
+
+
+# ---- 顶部导航栏（Phase 4-D）-------------------------------------------------
+# 右侧版本号
+NAV_VERSION_TEXT = "v3.0"
+
+
+# ---- 电流页工具条（Phase 4-D）-----------------------------------------------
+TOOLBAR_TITLE = "⚡ 电流检测  ·  CURRENT DETECTION"
+TOOLBAR_BTN_START_LABEL = "▶ 启动"
+TOOLBAR_BTN_PAUSE_LABEL = "⏸ 暂停"
+TOOLBAR_BTN_STOP_LABEL = "■ 停止"
+TOOLBAR_BTN_CLEAR_LABEL = "✕ 清空"
+# 选区计数：模板用 n=0 时即为默认"已选 0"
+TOOLBAR_SELECTION_TEMPLATE = "已选 {n}"
+
+
+# ---- 浮窗层（Phase 4-D）------------------------------------------------------
+# LED 状态矩阵浮窗标题
+LED_MATRIX_TITLE = "● 状态矩阵  //  STATUS MATRIX"
+# 右上角"立即复位"按钮
+RESET_BTN_TEXT = "⟲  复位视角"
+RESET_BTN_TOOLTIP = "把 3D 视角复位到初始位置（不打断数据）"

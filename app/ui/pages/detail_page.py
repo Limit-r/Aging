@@ -259,12 +259,12 @@ class DetailPage(QWidget):
 
     @staticmethod
     def _state_text(state: DetectionState) -> str:
-        """DetectionState → 中文显示文本。"""
+        """DetectionState → 中文显示文本（统一走 labels.DETECTION_STATE_*）。"""
         return {
-            DetectionState.RUNNING: "运行中",
-            DetectionState.PAUSED: "已暂停",
-            DetectionState.STOPPED: "已停止",
-        }.get(state, "未知")
+            DetectionState.RUNNING: labels.DETECTION_STATE_RUNNING,
+            DetectionState.PAUSED: labels.DETECTION_STATE_PAUSED,
+            DetectionState.STOPPED: labels.DETECTION_STATE_STOPPED,
+        }.get(state, labels.DETECTION_STATE_UNKNOWN)
 
     # -- 槽函数 ---------------------------------------------------------------
     # 不使用 @safe_call 装饰：functools.wraps 不保留真实签名给 PyQt5 内省，

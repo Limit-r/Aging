@@ -220,6 +220,7 @@ class Sizing:
     FLOATER_MARGIN_H: int = 16
     FLOATER_MARGIN_V: int = 12
     FLOATER_SPACING: int = 4
+    FLOATER_STACK_GAP: int = 14   # 主页浮窗层垂直堆叠间距（4 个浮窗 top→bottom）
 
     # LED 矩阵浮窗（RightLEDStripFloater）
     FLOATER_LED_SPACING: int = 6       # 容器内子项间距
