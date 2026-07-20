@@ -38,7 +38,9 @@ class DataPoint(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         sizing = DEFAULT_TOKENS.sizing
         # Phase A: 缩到小尺寸，让 72 cell 一次显示无滚动
-        self.setMinimumSize(36, 28)
+        self.setMinimumSize(
+            sizing.DATA_POINT_MIN_W_NEW, sizing.DATA_POINT_MIN_H_NEW,
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
@@ -48,7 +50,7 @@ class DataPoint(QWidget):
         layout.setSpacing(0)
 
         top = QHBoxLayout()
-        top.setSpacing(2)
+        top.setSpacing(sizing.DATA_POINT_TOP_SPACING)
         top.setContentsMargins(0, 0, 0, 0)
         self._label = QLabel(label)
         self._label.setObjectName("dataPointLabel")
@@ -180,7 +182,9 @@ class DataCell(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         sizing = DEFAULT_TOKENS.sizing
         # Phase A: 缩到小尺寸，让 72 cell 一次显示无滚动
-        self.setMinimumSize(110, 64)
+        self.setMinimumSize(
+            sizing.DATA_CELL_MIN_W, sizing.DATA_CELL_MIN_H,
+        )
 
         self._build_ui()
         self._init_display()

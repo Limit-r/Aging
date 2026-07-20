@@ -34,8 +34,6 @@ from app.observability import get_logger
 _log = get_logger("app.ui.nav_bar")
 
 
-
-
 # ============================================================================
 # Nav 按钮
 # ============================================================================
@@ -73,7 +71,7 @@ class TopNavBar(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setObjectName("topNavBar")
-        self.setFixedHeight(60)
+        self.setFixedHeight(DEFAULT_TOKENS.sizing.NAV_BAR_H)
         self._buttons: Dict[str, NavButton] = {}
         self._active_key: Optional[str] = None
         # QSS 由 templates.nav_bar() 全局接管

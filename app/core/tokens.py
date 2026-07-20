@@ -208,7 +208,49 @@ class Sizing:
     CELL_OUTER_MARGIN_H: int = 8
     CELL_OUTER_MARGIN_V: int = 6
     CELL_OUTER_SPACING: int = 6
-    COUNTDOWN_PROGRESS_H: int = 8  # 倒计时进度条高度
+    # 倒计时进度条
+    COUNTDOWN_PROGRESS_H: int = 8
+
+    # ---- 导航栏 / 浮窗 / 复位按钮（Phase 4-B/C）----------------------------
+    # 顶部 nav bar
+    NAV_BAR_H: int = 60
+
+    # 浮窗（4 种 side 共用）
+    FLOATER_W: int = 220
+    FLOATER_MARGIN_H: int = 16
+    FLOATER_MARGIN_V: int = 12
+    FLOATER_SPACING: int = 4
+
+    # LED 矩阵浮窗（RightLEDStripFloater）
+    FLOATER_LED_SPACING: int = 6       # 容器内子项间距
+    FLOATER_LED_ROW_SPACING: int = 2   # 行内点间距
+    FLOATER_LED_DOT_SIZE: int = 16     # 单个 LED 点边长（正方形）
+    FLOATER_LED_ROW_LABEL_W: int = 20  # 行号标签宽度
+
+    # 右上角"立即复位"按钮
+    RESET_BTN_W: int = 96
+    RESET_BTN_H: int = 28
+
+    # ---- 详情页（Phase 3 优化新增）-----------------------------------------
+    DETAIL_HEADER_H: int = 56
+    DETAIL_ACTIONS_H: int = 96
+    DETAIL_MARGIN: int = 16            # root 边距
+    DETAIL_SPACING: int = 12           # root 内子项间距
+    DETAIL_HEADER_MARGIN_H: int = 16   # header layout 左右边距
+    DETAIL_ACTIONS_MARGIN_V: int = 8   # actions layout 上下边距
+
+    # ---- 电流页工具条（Phase A.8）------------------------------------------
+    TOOLBAR_H: int = 48
+    TOOLBAR_BTN_MIN_H: int = 32        # 批量按钮最小高度
+    TOOLBAR_SPACING: int = 12
+    TOOLBAR_GAP: int = 16              # 标题/按钮组与右侧元素的拉伸间隔
+
+    # ---- 缩版 DataCell / DataPoint（Phase A 缩到小尺寸）--------------------
+    DATA_CELL_MIN_W: int = 110
+    DATA_CELL_MIN_H: int = 64
+    DATA_POINT_MIN_W_NEW: int = 36     # Phase A 缩版（区别于已有 DATA_POINT_MIN_W=50）
+    DATA_POINT_MIN_H_NEW: int = 28
+    DATA_POINT_TOP_SPACING: int = 2    # DataPoint top hbox 内部子项间距
 
 
 @dataclass(frozen=True)

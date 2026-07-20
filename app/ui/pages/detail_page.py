@@ -92,16 +92,23 @@ class DetailPage(QWidget):
 
     # -- UI 布局 --------------------------------------------------------------
     def _build_ui(self) -> None:
+        s = DEFAULT_TOKENS.sizing
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
-        root.setSpacing(12)
+        root.setContentsMargins(
+            s.DETAIL_MARGIN, s.DETAIL_MARGIN,
+            s.DETAIL_MARGIN, s.DETAIL_MARGIN,
+        )
+        root.setSpacing(s.DETAIL_SPACING)
 
         # 1) header
         self._header = QFrame()
         self._header.setObjectName("detailHeader")
-        self._header.setFixedHeight(56)
+        self._header.setFixedHeight(s.DETAIL_HEADER_H)
         header_layout = QHBoxLayout(self._header)
-        header_layout.setContentsMargins(16, 0, 16, 0)
+        header_layout.setContentsMargins(
+            s.DETAIL_HEADER_MARGIN_H, 0,
+            s.DETAIL_HEADER_MARGIN_H, 0,
+        )
         self._back_btn = QPushButton(labels.DETAIL_BACK_TEXT)
         self._back_btn.setObjectName("detailBackBtn")
         self._back_btn.clicked.connect(self._on_back_clicked)
@@ -132,15 +139,18 @@ class DetailPage(QWidget):
         # 3) actions
         self._actions = QFrame()
         self._actions.setObjectName("detailActions")
-        self._actions.setFixedHeight(96)
+        self._actions.setFixedHeight(s.DETAIL_ACTIONS_H)
         actions_layout = QVBoxLayout(self._actions)
-        actions_layout.setContentsMargins(16, 8, 16, 8)
+        actions_layout.setContentsMargins(
+            s.DETAIL_HEADER_MARGIN_H, s.DETAIL_ACTIONS_MARGIN_V,
+            s.DETAIL_HEADER_MARGIN_H, s.DETAIL_ACTIONS_MARGIN_V,
+        )
         self._actions_title = QLabel(labels.DETAIL_ACTIONS_TITLE)
         self._actions_title.setObjectName("detailActionsTitle")
         actions_layout.addWidget(self._actions_title)
         btn_layout = QHBoxLayout()
         btn_layout.setContentsMargins(0, 0, 0, 0)
-        btn_layout.setSpacing(12)
+        btn_layout.setSpacing(s.DETAIL_SPACING)
         self._btn_start = self._make_action_btn(0)
         self._btn_pause = self._make_action_btn(1)
         self._btn_resume = self._make_action_btn(2)

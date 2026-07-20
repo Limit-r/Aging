@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
 )
 
 from app.core import config
+from app.core.tokens import DEFAULT_TOKENS
 from app.data.demo_source import DemoDataSource
 from app.data.history_buffer import HistoryBuffer
 from app.observability import get_logger, narrative
@@ -40,6 +41,9 @@ from app.widgets.cell_grid import CellGrid
 
 
 _log = get_logger("app.ui.pages.current_page")
+
+# 取一次 sizing 引用
+_S = DEFAULT_TOKENS.sizing
 
 
 class CurrentToolbar(QFrame):
@@ -51,20 +55,23 @@ class CurrentToolbar(QFrame):
     def __init__(self, total: int, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setObjectName("currentToolbar")
-        self.setFixedHeight(48)
+        self.setFixedHeight(_S.TOOLBAR_H)
         self._build_ui(total)
 
     def _build_ui(self, total: int) -> None:
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 0, 16, 0)
-        layout.setSpacing(12)
+        layout.setContentsMargins(
+            _S.DETAIL_HEADER_MARGIN_H, 0,
+            _S.DETAIL_HEADER_MARGIN_H, 0,
+        )
+        layout.setSpacing(_S.TOOLBAR_SPACING)
 
         # 左：标题
         title = QLabel("⚡ 电流检测  ·  CURRENT DETECTION")
         title.setObjectName("currentTitle")
         layout.addWidget(title)
 
-        layout.addSpacing(16)
+        layout.addSpacing(_S.TOOLBAR_GAP)
 
         # 中：批量按钮
         self._btn_start = self._make_btn("▶ 启动", "btnBatch")
@@ -87,7 +94,7 @@ class CurrentToolbar(QFrame):
         self._selection_label.setObjectName("selectionCount")
         layout.addWidget(self._selection_label)
 
-        layout.addSpacing(16)
+        layout.addSpacing(_S.TOOLBAR_GAP)
 
         # 最右：元信息
         info = QLabel(
@@ -100,7 +107,7 @@ class CurrentToolbar(QFrame):
         b = QPushButton(text)
         b.setObjectName(name)
         b.setCursor(Qt.PointingHandCursor)
-        b.setMinimumHeight(32)
+        b.setMinimumHeight(_S.TOOLBAR_BTN_MIN_H)
         return b
 
     def update_selection(self, n: int) -> None:

@@ -27,6 +27,9 @@ from app.observability import get_logger
 
 _log = get_logger("app.ui.floaters")
 
+# 取一次 sizing 引用（避免每个构造里 4 次访问）
+_S = DEFAULT_TOKENS.sizing
+
 
 # ============================================================================
 # 右浮窗：最近告警
@@ -39,12 +42,15 @@ class RightAlertsFloater(QFrame):
         self.setObjectName("floaterPanel")
         self.setProperty("side", "right")  # QSS 边框色按 side 切换
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self.setFixedWidth(220)
+        self.setFixedWidth(_S.FLOATER_W)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(4)
+        layout.setContentsMargins(
+            _S.FLOATER_MARGIN_H, _S.FLOATER_MARGIN_V,
+            _S.FLOATER_MARGIN_H, _S.FLOATER_MARGIN_V,
+        )
+        layout.setSpacing(_S.FLOATER_SPACING)
 
         title = QLabel(labels.HUD_ALERTS_TITLE)
         title.setObjectName("floaterTitle")
@@ -77,12 +83,15 @@ class BottomRightHUDFloater(QFrame):
         super().__init__(parent)
         self.setObjectName("floaterPanel")
         self.setProperty("side", "bottomright")  # QSS 边框色按 side 切换
-        self.setFixedWidth(220)
+        self.setFixedWidth(_S.FLOATER_W)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(4)
+        layout.setContentsMargins(
+            _S.FLOATER_MARGIN_H, _S.FLOATER_MARGIN_V,
+            _S.FLOATER_MARGIN_H, _S.FLOATER_MARGIN_V,
+        )
+        layout.setSpacing(_S.FLOATER_SPACING)
 
         title = QLabel(labels.HUD_SYSTEM_STATS_TITLE)
         title.setObjectName("floaterTitle")
@@ -135,12 +144,15 @@ class RightLEDStripFloater(QFrame):
         super().__init__(parent)
         self.setObjectName("floaterPanel")
         self.setProperty("side", "ledstrip")  # QSS 边框色按 side 切换
-        self.setFixedWidth(220)
+        self.setFixedWidth(_S.FLOATER_W)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(6)
+        layout.setContentsMargins(
+            _S.FLOATER_MARGIN_H, _S.FLOATER_MARGIN_V,
+            _S.FLOATER_MARGIN_H, _S.FLOATER_MARGIN_V,
+        )
+        layout.setSpacing(_S.FLOATER_LED_SPACING)
 
         # 标题
         title = QLabel("● 状态矩阵  //  STATUS MATRIX")
@@ -161,18 +173,20 @@ class RightLEDStripFloater(QFrame):
 
         for row in range(config.GRID_ROWS):
             row_layout = QHBoxLayout()
-            row_layout.setSpacing(2)
+            row_layout.setSpacing(_S.FLOATER_LED_ROW_SPACING)
             row_layout.setContentsMargins(0, 0, 0, 0)
             # 行号
             row_label = QLabel(f"{row + 1:02d}")
             row_label.setObjectName("floaterBody")
-            row_label.setFixedWidth(20)
+            row_label.setFixedWidth(_S.FLOATER_LED_ROW_LABEL_W)
             row_label.setAlignment(Qt.AlignCenter)
             row_layout.addWidget(row_label)
             # 9 个小圆点
             for col in range(config.GRID_COLS):
                 dot = QLabel("●")
-                dot.setFixedSize(16, 16)
+                dot.setFixedSize(
+                    _S.FLOATER_LED_DOT_SIZE, _S.FLOATER_LED_DOT_SIZE,
+                )
                 dot.setAlignment(Qt.AlignCenter)
                 # 初始：offline 灰
                 dot.setStyleSheet(
@@ -221,7 +235,10 @@ class ResetViewButton(QPushButton):
         super().__init__("⟲  复位视角", parent)
         self.setObjectName("resetViewButton")
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedSize(96, 28)
+        self.setFixedSize(
+            DEFAULT_TOKENS.sizing.RESET_BTN_W,
+            DEFAULT_TOKENS.sizing.RESET_BTN_H,
+        )
         # QSS 由 templates.reset_view_button() 全局接管
         self.setToolTip("把 3D 视角复位到初始位置（不打断数据）")
         self.clicked.connect(self.clicked_reset.emit)
