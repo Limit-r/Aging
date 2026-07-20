@@ -698,3 +698,214 @@ QProgressBar#countdownProgress[state="expired"]::chunk {{
         stop:0 {c.PROGRESS_CHUNK_EXPIRED}, stop:1 {c.PROGRESS_CHUNK_EXPIRED_LIGHT});
 }}
 """
+
+
+# ============================================================================
+# 顶部导航栏（TopNavBar / NavButton / navBrand / navVersion）
+# ============================================================================
+def nav_bar(t: DesignTokens) -> str:
+    """顶部导航栏完整 QSS。
+
+    视觉：60px 高，顶部 1px 高光 / 底部 1px 描边。
+    品牌区 1px 右侧分隔线，nav 按钮 4 状态（default / hover / active / pressed）。
+    """
+    c = t.colors
+    f = t.fonts
+    return f"""
+/* ---- 整体 nav 容器：上下细高光 + 暗色背景 ----------------------------- */
+QWidget#topNavBar {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_TITLE_BAR},
+        stop:0.5 {c.BG_BASE},
+        stop:1 {c.BG_DEEP});
+    border-top: 1px solid {rgba(c.BORDER_PRIMARY, 60)};
+    border-bottom: 1px solid {c.BORDER_PRIMARY};
+}}
+
+/* ---- 品牌区：左侧大写 + 1px 右侧分隔线 --------------------------------- */
+QLabel#navBrand {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_TITLE};
+    font-size: 14pt;
+    font-weight: bold;
+    letter-spacing: 3px;
+    background: transparent;
+    padding: 0 24px 0 8px;
+    border-right: 1px solid {rgba(c.BORDER_PRIMARY, 50)};
+}}
+
+QLabel#navVersion {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: 10pt;
+    font-weight: bold;
+    letter-spacing: 2px;
+    background: transparent;
+    padding: 0 16px;
+}}
+
+/* ---- Nav 按钮：默认态（透明 + 暗色文字）------------------------------- */
+QPushButton#navButton {{
+    background-color: transparent;
+    color: {c.TEXT_SECONDARY};
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0px;
+    padding: 0 20px;
+    min-height: 50px;
+    font-family: {f.FAMILY_MONO};
+    font-size: 12pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+    text-align: center;
+}}
+
+/* ---- Nav 按钮：hover 态（暗亮蓝背景 + 文字变亮）---------------------- */
+QPushButton#navButton:hover {{
+    background-color: {rgba(c.BORDER_PRIMARY, 25)};
+    color: {c.TEXT_PRIMARY};
+    border-bottom: 2px solid {rgba(c.TEXT_NEON_CYAN, 120)};
+}}
+
+/* ---- Nav 按钮：active 选中态（顶部到底色加深 + 底部亮青发光条）-------- */
+QPushButton#navButton[active="true"] {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {rgba(c.BORDER_PRIMARY, 35)},
+        stop:1 {rgba(c.BORDER_PRIMARY, 8)});
+    color: {c.TEXT_NEON_CYAN};
+    border-bottom: 2px solid {c.TEXT_NEON_CYAN};
+}}
+
+QPushButton#navButton[active="true"]:hover {{
+    background-color: {rgba(c.BORDER_PRIMARY, 60)};
+    color: {c.TEXT_NEON_CYAN};
+    border-bottom: 2px solid {c.TEXT_NEON_CYAN};
+}}
+
+/* ---- Nav 按钮：pressed 态（短按下反馈）------------------------------- */
+QPushButton#navButton:pressed {{
+    background-color: {rgba(c.BORDER_PRIMARY, 80)};
+    color: {c.BG_DEEP};
+}}
+"""
+
+
+# ============================================================================
+# 浮窗（floaterPanel + 4 种 side 边框色）
+# ============================================================================
+def floater(t: DesignTokens) -> str:
+    """浮窗基础 + 4 种 side 边框色 QSS。
+
+    通过 `QFrame#floaterPanel[side="xxx"]` 动态属性区分边框色。
+    """
+    c = t.colors
+    f = t.fonts
+    return f"""
+/* ---- 浮窗基础：半透明深色 + 圆角 ----------------------------------- */
+QFrame#floaterPanel {{
+    background-color: {c.FLOATER_BG};
+    border-radius: 8px;
+}}
+
+/* ---- 4 种 side 边框色（通过 dynamic property 切换）----------------- */
+QFrame#floaterPanel[side="right"] {{
+    border: 1px solid {c.FLOATER_BORDER_WARNING};
+}}
+QFrame#floaterPanel[side="bottomright"] {{
+    border: 1px solid {c.FLOATER_BORDER_CYAN};
+}}
+QFrame#floaterPanel[side="ledstrip"] {{
+    border: 1px solid {c.FLOATER_BORDER_RUNNING};
+}}
+QFrame#floaterPanel[side="neutral"] {{
+    border: 1px solid {c.FLOATER_BORDER_NEUTRAL};
+}}
+
+/* ---- 浮窗标题（标题色随 side 变化）---------------------------------- */
+QLabel#floaterTitle {{
+    font-family: {f.FAMILY_MONO};
+    font-size: 11pt;
+    font-weight: bold;
+    letter-spacing: 2px;
+    background: transparent;
+    padding: 0 0 4px 0;
+}}
+QFrame#floaterPanel[side="right"] QLabel#floaterTitle {{
+    color: {c.FLOATER_BORDER_WARNING};
+}}
+QFrame#floaterPanel[side="bottomright"] QLabel#floaterTitle {{
+    color: {c.FLOATER_BORDER_CYAN};
+}}
+QFrame#floaterPanel[side="ledstrip"] QLabel#floaterTitle {{
+    color: {c.FLOATER_BORDER_RUNNING};
+}}
+
+/* ---- 浮窗主体（统一色）-------------------------------------------- */
+QLabel#floaterBody {{
+    color: {c.TEXT_PRIMARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: 10pt;
+    background: transparent;
+    padding: 2px 0;
+}}
+
+/* ---- 浮窗强调文字（色随 side 变化）---------------------------------- */
+QLabel#floaterAccent {{
+    font-family: {f.FAMILY_DATA};
+    font-size: 14pt;
+    font-weight: bold;
+    background: transparent;
+    padding: 0;
+}}
+QFrame#floaterPanel[side="right"] QLabel#floaterAccent {{
+    color: {c.TEXT_COUNTDOWN_WARNING};
+}}
+QFrame#floaterPanel[side="bottomright"] QLabel#floaterAccent {{
+    color: {c.TEXT_NEON_CYAN};
+}}
+QFrame#floaterPanel[side="ledstrip"] QLabel#floaterAccent {{
+    color: {c.TEXT_NEON_GREEN};
+}}
+
+/* ---- 浮窗提示（暗色斜体）---------------------------------------- */
+QLabel#floaterHint {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: 8pt;
+    font-style: italic;
+    background: transparent;
+    padding: 4px 0 0 0;
+}}
+"""
+
+
+# ============================================================================
+# 复位按钮（resetViewButton）
+# ============================================================================
+def reset_view_button(t: DesignTokens) -> str:
+    """右上角"立即复位"按钮 QSS。"""
+    c = t.colors
+    f = t.fonts
+    return f"""
+QPushButton#resetViewButton {{
+    background-color: {c.RESET_BTN_BG};
+    color: {c.TEXT_DIM};
+    border: 1px solid {c.RESET_BTN_BORDER};
+    border-radius: 4px;
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    font-weight: normal;
+    padding: 0;
+}}
+QPushButton#resetViewButton:hover {{
+    background-color: {c.RESET_BTN_BG_HOVER};
+    color: {c.TEXT_NEON_CYAN};
+    border: 1px solid {c.BORDER_PRIMARY};
+}}
+QPushButton#resetViewButton:pressed {{
+    background-color: {c.BORDER_PRIMARY};
+    color: {c.BG_DEEP};
+}}
+"""

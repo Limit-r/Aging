@@ -117,6 +117,19 @@ class Colors:
     GLOW_LIGHT_CYAN_HIGH: str = "rgba(74, 217, 255, 140)"  # hover 中段
     GLOW_LIGHT_CYAN_BORDER: str = "rgba(74, 217, 255, 60)" # 边框
     GLOW_LIGHT_CYAN_ALERT: str = "rgba(255, 59, 92, 100)"  # 告警叠加（注意：实际是红色系，命名沿用方案）
+    # ---- 浮窗（nav_bar / floaters 共用）------------------------------------
+    # 半透明深色背景（10,15,28 = BG_BASE，alpha 200）
+    FLOATER_BG: str = "rgba(10, 15, 28, 200)"
+    # 4 种边框色（按 side 区分）
+    FLOATER_BORDER_WARNING: str = "rgba(255, 174, 66, 180)"   # 告警浮窗（橙）
+    FLOATER_BORDER_RUNNING: str = "rgba(16, 255, 161, 160)"    # LED 矩阵（绿）
+    FLOATER_BORDER_CYAN: str = "rgba(0, 229, 255, 180)"       # HUD 浮窗（青）
+    FLOATER_BORDER_NEUTRAL: str = "rgba(60, 80, 120, 140)"    # 中性边框（深灰蓝）
+
+    # ---- 复位按钮（ResetViewButton）----------------------------------------
+    RESET_BTN_BG: str = "rgba(10, 15, 28, 180)"               # 比浮窗背景深 1 档
+    RESET_BTN_BG_HOVER: str = "rgba(20, 30, 50, 220)"          # hover 时略亮
+    RESET_BTN_BORDER: str = "rgba(60, 80, 120, 140)"           # 同 FLOATER_BORDER_NEUTRAL
 
 
 @dataclass(frozen=True)

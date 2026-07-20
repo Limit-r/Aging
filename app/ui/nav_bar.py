@@ -34,92 +34,6 @@ from app.observability import get_logger
 _log = get_logger("app.ui.nav_bar")
 
 
-# ============================================================================
-# 完整 QSS 样式（Phase 1.20 UI 升级）
-# ============================================================================
-def _build_nav_qss() -> str:
-    """返回 TopNavBar + NavButton + 品牌/版本号 完整 QSS。"""
-    c = DEFAULT_TOKENS.colors
-    f = DEFAULT_TOKENS.fonts
-    return f"""
-/* ---- 整体 nav 容器：上下细高光 + 暗色背景 ----------------------------- */
-QWidget#topNavBar {{
-    background-color: qlineargradient(
-        x1:0, y1:0, x2:0, y2:1,
-        stop:0 {c.BG_TITLE_BAR},
-        stop:0.5 {c.BG_BASE},
-        stop:1 {c.BG_DEEP});
-    border-top: 1px solid rgba(0, 191, 255, 60);
-    border-bottom: 1px solid {c.BORDER_PRIMARY};
-}}
-
-/* ---- 品牌区：左侧大写 + 1px 右侧分隔线 --------------------------------- */
-QLabel#navBrand {{
-    color: {c.TEXT_NEON_CYAN};
-    font-family: {f.FAMILY_TITLE};
-    font-size: 14pt;
-    font-weight: bold;
-    letter-spacing: 3px;
-    background: transparent;
-    padding: 0 24px 0 8px;
-    border-right: 1px solid rgba(0, 191, 255, 50);
-}}
-
-QLabel#navVersion {{
-    color: {c.TEXT_DIM};
-    font-family: {f.FAMILY_MONO};
-    font-size: 10pt;
-    font-weight: bold;
-    letter-spacing: 2px;
-    background: transparent;
-    padding: 0 16px;
-}}
-
-/* ---- Nav 按钮：默认态（透明 + 暗色文字）------------------------------- */
-QPushButton#navButton {{
-    background-color: transparent;
-    color: {c.TEXT_SECONDARY};
-    border: none;
-    border-bottom: 2px solid transparent;
-    border-radius: 0px;
-    padding: 0 20px;
-    min-height: 50px;
-    font-family: {f.FAMILY_MONO};
-    font-size: 12pt;
-    font-weight: bold;
-    letter-spacing: 1px;
-    text-align: center;
-}}
-
-/* ---- Nav 按钮：hover 态（暗亮蓝背景 + 文字变亮）---------------------- */
-QPushButton#navButton:hover {{
-    background-color: rgba(0, 191, 255, 25);
-    color: {c.TEXT_PRIMARY};
-    border-bottom: 2px solid rgba(0, 229, 255, 120);
-}}
-
-/* ---- Nav 按钮：active 选中态（顶部到底色加深 + 底部亮青发光条）-------- */
-QPushButton#navButton[active="true"] {{
-    background-color: qlineargradient(
-        x1:0, y1:0, x2:0, y2:1,
-        stop:0 rgba(0, 191, 255, 35),
-        stop:1 rgba(0, 191, 255, 8));
-    color: {c.TEXT_NEON_CYAN};
-    border-bottom: 2px solid {c.TEXT_NEON_CYAN};
-}}
-
-QPushButton#navButton[active="true"]:hover {{
-    background-color: rgba(0, 191, 255, 60);
-    color: {c.TEXT_NEON_CYAN};
-    border-bottom: 2px solid {c.TEXT_NEON_CYAN};
-}}
-
-/* ---- Nav 按钮：pressed 态（短按下反馈）------------------------------- */
-QPushButton#navButton:pressed {{
-    background-color: rgba(0, 191, 255, 80);
-    color: {c.BG_DEEP};
-}}
-"""
 
 
 # ============================================================================
@@ -162,8 +76,7 @@ class TopNavBar(QWidget):
         self.setFixedHeight(60)
         self._buttons: Dict[str, NavButton] = {}
         self._active_key: Optional[str] = None
-        # 应用 QSS
-        self.setStyleSheet(_build_nav_qss())
+        # QSS 由 templates.nav_bar() 全局接管
         self._build_ui()
         # 默认激活第一项（home）
         self.set_active("home")

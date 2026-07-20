@@ -29,88 +29,6 @@ _log = get_logger("app.ui.floaters")
 
 
 # ============================================================================
-# 浮窗基础样式
-# ============================================================================
-
-# 半透明背景（rgba）+ 描边的 QSS（带轻微 box-shadow 通过 border 模拟发光）
-_FLOATER_BASE_QSS = """
-QFrame#floaterPanel {{
-    background-color: rgba(10, 15, 28, 200);
-    border: 1px solid {border};
-    border-radius: 8px;
-}}
-
-QLabel#floaterTitle {{
-    color: {border};
-    font-family: {font_mono};
-    font-size: 11pt;
-    font-weight: bold;
-    letter-spacing: 2px;
-    background: transparent;
-    padding: 0 0 4px 0;
-}}
-
-QLabel#floaterBody {{
-    color: {text};
-    font-family: {font_mono};
-    font-size: 10pt;
-    background: transparent;
-    padding: 2px 0;
-}}
-
-QLabel#floaterAccent {{
-    color: {accent};
-    font-family: {font_data};
-    font-size: 14pt;
-    font-weight: bold;
-    background: transparent;
-    padding: 0;
-}}
-
-QLabel#floaterHint {{
-    color: {hint};
-    font-family: {font_mono};
-    font-size: 8pt;
-    font-style: italic;
-    background: transparent;
-    padding: 4px 0 0 0;
-}}
-"""
-
-
-def _floater_qss(side: str = "left") -> str:
-    """根据侧边返回对应 QSS 片段。
-
-    side: "right" / "ledstrip" / "bottomright" / "reset"
-    """
-    c = DEFAULT_TOKENS.colors
-    f = DEFAULT_TOKENS.fonts
-    if side == "right":
-        # 告警浮窗：橙边框（高警示）
-        border = "rgba(255, 174, 66, 180)"
-        accent = c.TEXT_COUNTDOWN_WARNING
-    elif side == "ledstrip":
-        # LED 状态矩阵：绿边框（中性 + 与 RUNNING LED 一致）
-        border = "rgba(16, 255, 161, 160)"
-        accent = c.TEXT_NEON_GREEN
-    elif side == "bottomright":
-        # HUD 浮窗：青边框（与 3D 边框一致）
-        border = "rgba(0, 229, 255, 180)"
-        accent = c.TEXT_NEON_CYAN
-    else:  # reset button handled inline
-        border = "rgba(60, 80, 120, 140)"
-        accent = c.TEXT_DIM
-    return _FLOATER_BASE_QSS.format(
-        border=border,
-        text=c.TEXT_PRIMARY,
-        accent=accent,
-        hint=c.TEXT_DIM,
-        font_mono=f.FAMILY_MONO,
-        font_data=f.FAMILY_DATA,
-    )
-
-
-# ============================================================================
 # 右浮窗：最近告警
 # ============================================================================
 class RightAlertsFloater(QFrame):
@@ -119,10 +37,10 @@ class RightAlertsFloater(QFrame):
     def __init__(self, parent: Optional[QFrame] = None):
         super().__init__(parent)
         self.setObjectName("floaterPanel")
+        self.setProperty("side", "right")  # QSS 边框色按 side 切换
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setFixedWidth(220)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.setStyleSheet(_floater_qss("right"))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
@@ -158,9 +76,9 @@ class BottomRightHUDFloater(QFrame):
     def __init__(self, parent: Optional[QFrame] = None):
         super().__init__(parent)
         self.setObjectName("floaterPanel")
+        self.setProperty("side", "bottomright")  # QSS 边框色按 side 切换
         self.setFixedWidth(220)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.setStyleSheet(_floater_qss("bottomright"))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
@@ -216,9 +134,9 @@ class RightLEDStripFloater(QFrame):
     def __init__(self, parent: Optional[QFrame] = None):
         super().__init__(parent)
         self.setObjectName("floaterPanel")
+        self.setProperty("side", "ledstrip")  # QSS 边框色按 side 切换
         self.setFixedWidth(220)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-        self.setStyleSheet(_floater_qss("ledstrip"))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
@@ -304,30 +222,6 @@ class ResetViewButton(QPushButton):
         self.setObjectName("resetViewButton")
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedSize(96, 28)
-        # 不显眼：深色背景 + 细描边 + 小号字
-        c = DEFAULT_TOKENS.colors
-        self.setStyleSheet(
-            f"""
-            QPushButton#resetViewButton {{
-                background-color: rgba(10, 15, 28, 180);
-                color: {c.TEXT_DIM};
-                border: 1px solid rgba(60, 80, 120, 140);
-                border-radius: 4px;
-                font-family: {DEFAULT_TOKENS.fonts.FAMILY_MONO};
-                font-size: 9pt;
-                font-weight: normal;
-                padding: 0;
-            }}
-            QPushButton#resetViewButton:hover {{
-                background-color: rgba(20, 30, 50, 220);
-                color: {c.TEXT_NEON_CYAN};
-                border: 1px solid {c.BORDER_PRIMARY};
-            }}
-            QPushButton#resetViewButton:pressed {{
-                background-color: {c.BORDER_PRIMARY};
-                color: {c.BG_DEEP};
-            }}
-            """
-        )
+        # QSS 由 templates.reset_view_button() 全局接管
         self.setToolTip("把 3D 视角复位到初始位置（不打断数据）")
         self.clicked.connect(self.clicked_reset.emit)
