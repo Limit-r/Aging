@@ -72,7 +72,7 @@ PANEL_PAD_Y = 1.35                      # 面板上下留白（Phase 1.25：0.9�
 CAMERA_DIST = 26.0                      # 初始相机距离（26 让 panel 完整在屏幕内）
 CAMERA_ELEV = 35.0                      # 俯视角（保持 3D 立体感）
 CAMERA_AZIM = 90.0                      # 方位角（0→90 让 panel 边缘与屏幕平行，消除对角倾斜）
-CAMERA_CENTER = (0, 0, -1.0)            # 视角中心（Y=0、Z=-1 让 panel 在屏幕居中）
+CAMERA_CENTER = (0, 0, -3)            # 视角中心（Y=0、Z=-1 让 panel 在屏幕居中）
 
 
 class Rack3DView(QWidget):
