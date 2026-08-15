@@ -14,11 +14,8 @@ led_pipeline/
 ├── detect/              # 推理脚本（视频/验证集）
 ├── classifier/          # TinyConv 亮灭二分类器
 ├── ablation/            # 消融实验（脚本 + 配置，结果已归档）
-├── merge_test/          # 合并数据集实验（实验遗留）
 ├── annotation_io.py     # 标注数据读写（被 app/data_page 懒加载引用）
 ├── annotation_widget.py # 标注画布（被 app/data_page 懒加载引用）
-├── extract_frames_A.py  # A 系列视频抽帧
-├── extract_video_frames.py  # FP 系列视频抽帧
 ├── datasets/
 │   ├── FP/              # FP 系列数据集（原始标注 XML + 镜像 + txt 划分）
 │   └── A/               # A 系列数据集
@@ -35,8 +32,11 @@ cd led_pipeline
 python train\train_fp.py          # 训练 YOLO
 python classifier\train.py        # 训练 TinyConv
 python detect\infer_fp.py --split val --conf 0.25
-python detect\detect_fp_video.py --video ..\video\003.mp4 --conf 0.20
+python detect\detect_fp_video.py --video ..\video\FP00.mp4 --conf 0.20
 ```
+
+> 视频抽帧已整合至根目录 `tools/extract_frames.py`（统一支持 A / FP 系列），
+> 源视频统一存放于项目根 `video/`（`*.mp4` 已被 git 忽略）。
 
 ## 权重说明
 
