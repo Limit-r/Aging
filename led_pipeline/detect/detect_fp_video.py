@@ -33,7 +33,7 @@ from utils.utils_bbox import DecodeBox
 from utils.utils import get_classes
 from classifier.infer import LEDClassifier
 
-DEFAULT_WEIGHTS = str(PROJECT_ROOT / 'weights' / 'FP_v3_5classes_v2' / 'best_epoch_weights.pth')
+DEFAULT_WEIGHTS = str(PROJECT_ROOT / 'weights' / 'FP_v3_5classes_v4' / 'best_epoch_weights.pth')
 DEFAULT_LABELS  = str(PROJECT_ROOT / 'datasets' / 'FP' / 'label.txt')
 DEFAULT_OUTDIR  = str(PROJECT_ROOT / 'detect' / 'outputs')
 

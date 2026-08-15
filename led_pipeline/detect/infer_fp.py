@@ -33,10 +33,10 @@ from model.YOLOV8 import YoloBody
 from utils.utils_bbox import DecodeBox
 from utils.utils import get_classes
 
-DEFAULT_WEIGHTS = str(PROJECT_ROOT / 'weights' / 'FP_v3_5classes_v2' / 'best_epoch_weights.pth')
-DEFAULT_DEPLOY  = str(PROJECT_ROOT / 'weights' / 'FP_v3_5classes_v2' / 'model_best_precision_deploy.pt')
+DEFAULT_WEIGHTS = str(PROJECT_ROOT / 'weights' / 'FP_v3_5classes_v4' / 'best_epoch_weights.pth')
+DEFAULT_DEPLOY  = str(PROJECT_ROOT / 'weights' / 'FP_v3_5classes_v4' / 'model_best_precision_deploy.pt')
 DEFAULT_LABELS  = str(PROJECT_ROOT / 'datasets' / 'FP' / 'label.txt')
-DEFAULT_OUTDIR  = str(PROJECT_ROOT / 'detect' / 'outputs' / 'FP_v3_5classes_v2')
+DEFAULT_OUTDIR  = str(PROJECT_ROOT / 'detect' / 'outputs' / 'FP_v3_5classes_v4')
 # split -> (txt路径, 输出子目录名)
 SPLIT_FILES = {
     'val':  str(PROJECT_ROOT / 'datasets' / 'FP' / '2025_val.txt'),

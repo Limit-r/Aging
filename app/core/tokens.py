@@ -308,6 +308,11 @@ class Sizing:
     ANNOT_ZOOM_BTN_W: int = 32        # 缩放按钮最小宽
     ANNOT_ZOOM_BTN_H: int = 24        # 缩放按钮高度
     ANNOT_ZOOM_PCT_W: int = 56        # 缩放百分比标签宽
+    # 画布角标展示的参考尺寸（真实尺寸在图片加载后动态更新）
+    ANNOT_CANVAS_REF_W: int = 1920    # 画布角标参考宽（占位展示）
+    ANNOT_CANVAS_REF_H: int = 1080    # 画布角标参考高（占位展示）
+    ANNOT_ZOOM_PCT_DEFAULT: int = 50  # 画布角标初始缩放百分比（占位展示）
+    ANNOT_ZOOM_PCT_SCALE: int = 100   # 缩放比例(0~1)→百分比换算系数
 
 
 @dataclass(frozen=True)

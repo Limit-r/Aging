@@ -41,7 +41,7 @@ from model.YOLOV8 import YoloBody
 from utils.utils_bbox import DecodeBox
 from utils.utils import get_classes
 
-DEFAULT_WEIGHTS = str(PROJECT_ROOT / 'weights' / 'FP_v3_5classes_v2' / 'model_best_precision_deploy.pt')
+DEFAULT_WEIGHTS = str(PROJECT_ROOT / 'weights' / 'FP_v3_5classes_v4' / 'model_best_precision_deploy.pt')
 DEFAULT_LABELS = str(PROJECT_ROOT / 'datasets' / 'FP' / 'label.txt')
 FP_DIR = PROJECT_ROOT / 'datasets' / 'FP'
 IMG_DIR = FP_DIR / 'JPEGImages'

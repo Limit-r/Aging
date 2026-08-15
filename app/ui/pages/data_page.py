@@ -312,7 +312,11 @@ class DataCenterPage(QWidget):
             0,
         )
         top.setSpacing(self._s.DATA_CANVAS_GAP)
-        corner_lt = QLabel("⊕  CANVAS  ·  1920×1080  ·  50%")
+        corner_lt = QLabel(labels.ANNOT_CANVAS_CORNER_TEMPLATE.format(
+            w=self._s.ANNOT_CANVAS_REF_W,
+            h=self._s.ANNOT_CANVAS_REF_H,
+            pct=self._s.ANNOT_ZOOM_PCT_DEFAULT,
+        ))
         corner_lt.setObjectName("dcCanvasCorner")
         top.addWidget(corner_lt)
         top.addStretch(1)
@@ -323,7 +327,8 @@ class DataCenterPage(QWidget):
         in_btn = QPushButton(labels.ANNOT_ZOOM_IN)
         in_btn.setObjectName("dcZoomBtn")
         in_btn.setToolTip(labels.ANNOT_ZOOM_TOOLTIP_IN)
-        zoom_pct = QLabel(labels.ANNOT_ZOOM_PCT_TEMPLATE.format(pct=100))
+        zoom_pct = QLabel(labels.ANNOT_ZOOM_PCT_TEMPLATE.format(
+            pct=self._s.ANNOT_ZOOM_PCT_SCALE))
         zoom_pct.setObjectName("dcZoomPct")
         orig_btn = QPushButton(labels.ANNOT_ZOOM_ORIG)
         orig_btn.setObjectName("dcZoomBtn")
@@ -586,7 +591,7 @@ class DataCenterPage(QWidget):
     def _on_zoom_changed(self, zoom: float) -> None:
         """画布缩放变化时刷新百分比显示。"""
         self._zoom_pct.setText(labels.ANNOT_ZOOM_PCT_TEMPLATE.format(
-            pct=int(round(zoom * 100)),
+            pct=int(round(zoom * self._s.ANNOT_ZOOM_PCT_SCALE)),
         ))
 
     def confirm_close(self) -> bool:
