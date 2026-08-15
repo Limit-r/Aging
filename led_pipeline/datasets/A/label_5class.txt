@@ -1,0 +1,4 @@
+A_CLIP
+A_PROT
+A_PWR
+A_area

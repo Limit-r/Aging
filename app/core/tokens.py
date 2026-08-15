@@ -93,6 +93,19 @@ class Colors:
     LED_SELECTED: tuple = (255, 255, 255, 255)  # 选中态白（叠加层）
     LED_HOVER: tuple = (200, 220, 255, 200)     # hover 高亮
 
+    # ---- 数据标注 · 画框调色板（QGraphicsView 直接用于 QColor，RGB tuple）----
+    # 类别 → 框色循环映射，让不同标注类在图片上可区分
+    ANNOT_BOX_PALETTE: tuple = (
+        (0, 191, 255),      # 亮蓝青（区域框主色）
+        (16, 255, 161),     # 霓虹绿
+        (255, 174, 66),     # 警告橙
+        (167, 139, 250),    # 紫
+        (255, 59, 92),      # 霓虹红
+        (0, 229, 255),      # 霓虹青
+        (255, 255, 255),    # 白
+    )
+    ANNOT_BOX_SELECTED: tuple = (255, 255, 255)   # 选中框描边（白）
+
     # ---- 浅色变体（深色背景下的浅色文字/边框/渐变末端）--------------------
     # Phase 4-A：从 templates.py 抽离的 4 个裸 hex 角色色
     TEXT_DANGER_LIGHT: str = "#ffd0d8"           # 危险态浅色（深色背景下红按钮 hover 文字）
@@ -252,6 +265,49 @@ class Sizing:
     DATA_POINT_MIN_W_NEW: int = 36     # Phase A 缩版（区别于已有 DATA_POINT_MIN_W=50）
     DATA_POINT_MIN_H_NEW: int = 28
     DATA_POINT_TOP_SPACING: int = 2    # DataPoint top hbox 内部子项间距
+
+    # ---- 数据中心（Phase 6）------------------------------------------------
+    DATA_PAGE_MARGIN: int = 12         # 页面整体边距
+    DATA_PAGE_SPACING: int = 10        # 页面内部子项间距
+    DATA_HEADER_H: int = 56            # 顶栏（徽章+标题+副标题+状态）高度
+    DATA_HEADER_PAD_L: int = 8         # 顶栏 layout 左内边距
+    DATA_HEADER_PAD_R: int = 12        # 顶栏 layout 右内边距
+    DATA_HEADER_GAP: int = 12          # 顶栏子项间距
+    DATA_HEADER_BADGE_MIN_W: int = 28  # 徽章最小宽
+    DATA_HEADER_BADGE_MAX_W: int = 36  # 徽章最大宽
+    DATA_TABS_H: int = 40              # 自绘页签栏高度
+    DATA_TABS_PAD_L: int = 8           # 页签栏 layout 左内边距
+    DATA_TABS_PAD_R: int = 8           # 页签栏 layout 右内边距
+    DATA_TABS_GAP: int = 4             # 页签按钮间距
+    DATA_CATEGORY_BAR_H: int = 44      # 类别工具条高度
+    DATA_CATEGORY_GAP: int = 8         # 类别工具条子项间距
+    DATA_CATEGORY_PAD: int = 0         # 类别工具条内边距
+    DATA_SIDEBAR_W: int = 220          # 图片列表侧栏宽度
+    DATA_SIDEBAR_PAD: int = 10         # 侧栏内边距
+    DATA_SIDEBAR_GAP: int = 8          # 侧栏子项间距
+    DATA_SIDEBAR_NAV_GAP: int = 6      # 侧栏导航按钮间距
+    DATA_CANVAS_MIN_H: int = 420       # 标注画布最小高度
+    DATA_CANVAS_PAD_X: int = 10        # 画布角标行左右内边距
+    DATA_CANVAS_PAD_T: int = 6         # 画布角标行顶部内边距
+    DATA_CANVAS_PAD_B: int = 6         # 画布角标行底部内边距
+    DATA_CANVAS_GAP: int = 4           # 画布角标子项间距
+    DATA_CANVAS_CENTER_GAP: int = 6    # 画布中心提示子项间距
+    DATA_FOOTER_MIN_H: int = 110       # 底部对象列表 + 操作栏最小高度
+    DATA_FOOTER_PAD: int = 0           # 底栏内边距
+    DATA_FOOTER_GAP: int = 6           # 底栏子项间距
+    DATA_FOOTER_HEAD_GAP: int = 8      # 底栏标题行子项间距
+    DATA_FOOTER_BTN_GAP: int = 8       # 底栏按钮间距
+    DATA_PLACEHOLDER_GAP: int = 8      # 占位页子项间距
+
+    # ---- 数据标注 · 画布交互参数 --------------------------------------------
+    ANNOT_BOX_BORDER_W: int = 2       # 标注框描边宽度（正常态）
+    ANNOT_BOX_BORDER_W_SEL: int = 3   # 选中框描边宽度
+    ANNOT_BOX_MIN_SIZE: int = 10      # 拖拽画框最小边长（小于此不保留）
+    ANNOT_PADDING_PX: int = 8        # 图片边距（canvas 内间距）
+    # 缩放控制条（画布顶栏）
+    ANNOT_ZOOM_BTN_W: int = 32        # 缩放按钮最小宽
+    ANNOT_ZOOM_BTN_H: int = 24        # 缩放按钮高度
+    ANNOT_ZOOM_PCT_W: int = 56        # 缩放百分比标签宽
 
 
 @dataclass(frozen=True)

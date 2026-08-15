@@ -1,0 +1,7 @@
+A_CLIP_H
+A_CLIP_L
+A_PROT_H
+A_PROT_L
+A_PWR_H
+A_PWR_L
+A_area

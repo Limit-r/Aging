@@ -28,6 +28,7 @@ class StylesheetBuilder:
             T.floater(tokens),
             T.reset_view_button(tokens),
             T.led_dot(tokens),
+            T.data_center(tokens),
         ))
 
 

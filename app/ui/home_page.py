@@ -31,6 +31,7 @@ import time
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QTimer, QEvent
+from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QStatusBar, QLabel,
 )
@@ -381,7 +382,8 @@ class HomePage(QMainWindow):
         self._router.register("home", self._dashboard)
         self._router.register("current", self._current_page)
         self._router.register("video", VideoDetectionPage())
-        self._router.register("data", DataCenterPage())
+        self._data_page = DataCenterPage()
+        self._router.register("data", self._data_page)
         self._router.register("settings", SettingsPage())
         self._router.register("detail", self._detail_page)
         # Phase 3：HomeDashboard 双击 → HomePage 路由切到 detail
@@ -501,3 +503,11 @@ class HomePage(QMainWindow):
             _log.error(
                 "_refresh_hud_counts failed: %r", e, exc_info=True,
             )
+
+    # -- 关闭应用前：确认未保存的标注改动 ------------------------------------
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if hasattr(self, "_data_page") and self._data_page is not None \
+                and not self._data_page.confirm_close():
+            event.ignore()
+            return
+        super().closeEvent(event)

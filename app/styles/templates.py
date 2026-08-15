@@ -940,3 +940,370 @@ QLabel#ledDot[ledState="warning"] {{
     color: {rgba_from_tuple(c.LED_WARNING, 0.95)};
 }}
 """
+
+
+# ---- 数据中心（Phase 6）-----------------------------------------------------
+def data_center(t: DesignTokens) -> str:
+    """数据中心页：页头横幅 + 自绘页签 + 标注工作区 + 工具条/页脚。"""
+    c, fs = t.colors, t.font_sizes
+    f, s = t.fonts, t.sizing
+    return f"""
+QWidget#dataCenterPage {{
+    background-color: {c.BG_DEEP};
+}}
+
+/* ---- 顶栏：图标徽章 + 标题 + 副标题 + 状态指示 ------------------------ */
+QFrame#dataHeader {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:1, y2:0,
+        stop:0 {rgba(c.BORDER_PRIMARY, 35)}, stop:0.6 {rgba(c.BORDER_PRIMARY, 8)}, stop:1 transparent);
+    border-top: 1px solid {rgba(c.BORDER_PRIMARY, 60)};
+    border-bottom: 1px solid {c.BORDER_PRIMARY};
+    padding-left: 8px;
+    padding-right: 12px;
+}}
+QLabel#dataHeaderBadge {{
+    color: {c.BG_DEEP};
+    background-color: {c.BORDER_PRIMARY};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: 4px;
+    font-family: {f.FAMILY_TITLE};
+    font-size: 11pt;
+    font-weight: bold;
+    padding: 2px 10px;
+    min-width: 28px;
+    max-width: 36px;
+}}
+QLabel#dataHeaderTitle {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_TITLE};
+    font-size: 16pt;
+    font-weight: bold;
+    letter-spacing: 4px;
+    background: transparent;
+}}
+QLabel#dataHeaderSubtitle {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    letter-spacing: 1px;
+    background: transparent;
+}}
+QLabel#dataHeaderStatus {{
+    color: {c.BORDER_PRIMARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+    padding: 3px 10px;
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: 3px;
+    background-color: {rgba(c.BORDER_PRIMARY, 12)};
+}}
+QWidget#dataHeaderTitleWrap {{
+    background: transparent;
+}}
+
+/* ---- 自绘页签（QPushButton + property） ------------------------------ */
+QFrame#dataTabsBar {{
+    background-color: {c.BG_DEEP};
+    border-bottom: 1px solid {c.BORDER_PRIMARY};
+    padding-left: 8px;
+    padding-right: 8px;
+}}
+QPushButton#dataTab {{
+    background-color: transparent;
+    color: {c.TEXT_SECONDARY};
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 8px 18px;
+    font-family: {f.FAMILY_MONO};
+    font-size: 10pt;
+    font-weight: bold;
+    letter-spacing: 2px;
+    min-width: 120px;
+}}
+QPushButton#dataTab:hover {{
+    color: {c.TEXT_PRIMARY};
+    background-color: {rgba(c.BORDER_PRIMARY, 12)};
+}}
+QPushButton#dataTab:checked {{
+    color: {c.TEXT_NEON_CYAN};
+    border-bottom: 2px solid {c.TEXT_NEON_CYAN};
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {rgba(c.BORDER_PRIMARY, 30)}, stop:1 transparent);
+}}
+QStackedWidget#dataStack {{
+    background-color: {c.BG_DEEP};
+    border: none;
+}}
+QWidget#dcCanvasOuter {{
+    background: transparent;
+}}
+QWidget#dcCanvasCenter {{
+    background: transparent;
+}}
+QLabel#dcFooterTitle {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_TITLE};
+    font-size: 11pt;
+    font-weight: bold;
+    letter-spacing: 2px;
+    background: transparent;
+    padding: 0;
+}}
+
+/* ---- 标注页 · 类别工具条 -------------------------------------------- */
+QFrame#dcCategoryBar {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_BTN_BOTTOM}, stop:1 {c.BG_DEEP});
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: 4px;
+    padding: 6px 10px;
+}}
+QLabel#dcBarLabel {{
+    color: {c.BORDER_PRIMARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    font-weight: bold;
+    letter-spacing: 2px;
+    background: transparent;
+}}
+QLabel#dcChip {{
+    background-color: {rgba(c.BORDER_PRIMARY, 18)};
+    color: {c.TEXT_NEON_CYAN};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: 12px;
+    padding: 3px 12px;
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+}}
+QLabel#dcChipAdd {{
+    background-color: transparent;
+    color: {c.TEXT_SECONDARY};
+    border: 1px dashed {c.BORDER_PRIMARY};
+    border-radius: 12px;
+    padding: 3px 12px;
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+}}
+QPushButton#dcChipBtn {{
+    background-color: {rgba(c.BORDER_PRIMARY, 18)};
+    color: {c.TEXT_NEON_CYAN};
+    border: 1px solid {rgba(c.BORDER_PRIMARY, 60)};
+    border-radius: 12px;
+    padding: 3px 12px;
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+}}
+QPushButton#dcChipBtn:hover {{
+    background-color: {rgba(c.BORDER_PRIMARY, 35)};
+    border: 1px solid {c.BORDER_HOVER};
+}}
+QPushButton#dcChipBtn:checked {{
+    background-color: {c.BORDER_PRIMARY};
+    color: {c.BG_DEEP};
+    border: 1px solid {c.BORDER_HOVER};
+}}
+QPushButton#dcGhostBtn {{
+    background-color: {c.BG_BTN_BOTTOM};
+    color: {c.TEXT_PRIMARY};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-family: {f.FAMILY_BUTTON};
+    font-size: 9pt;
+    font-weight: bold;
+    min-width: 72px;
+}}
+QPushButton#dcGhostBtn:hover {{
+    background-color: {c.BG_BTN_HOVER_TOP};
+    color: {c.BORDER_HOVER};
+    border: 1px solid {c.BORDER_HOVER};
+}}
+QPushButton#dcGhostBtn:pressed {{
+    background-color: {c.BORDER_PRIMARY};
+    color: {c.BG_DEEP};
+}}
+
+/* ---- 标注页 · 工作区分隔 --------------------------------------------- */
+QSplitter#dataSplitter {{
+    background-color: {c.BG_DEEP};
+}}
+QSplitter#dataSplitter::handle {{
+    background-color: {rgba(c.BORDER_PRIMARY, 50)};
+}}
+QSplitter#dataSplitter::handle:horizontal {{
+    width: 2px;
+}}
+
+/* ---- 侧栏：图片列表 + 导航 ------------------------------------------ */
+QFrame#dcSidePanel {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_RIGHT_PANEL}, stop:1 {c.BG_DEEP});
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: 4px;
+}}
+QLabel#dcPanelTitle {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_TITLE};
+    font-size: 12pt;
+    font-weight: bold;
+    letter-spacing: 2px;
+    background: transparent;
+    padding: 4px 2px 8px 2px;
+    border-bottom: 1px dashed {rgba(c.BORDER_PRIMARY, 50)};
+}}
+QListWidget#dcList {{
+    background-color: transparent;
+    color: {c.TEXT_PRIMARY};
+    border: none;
+    font-family: {f.FAMILY_MONO};
+    font-size: 10pt;
+    padding: 4px 2px;
+    outline: none;
+}}
+QListWidget#dcList::item {{
+    padding: 6px 10px;
+    border-radius: 3px;
+    border-left: 2px solid transparent;
+}}
+QListWidget#dcList::item:hover {{
+    background-color: {rgba(c.BORDER_PRIMARY, 18)};
+    color: {c.TEXT_PRIMARY};
+}}
+QListWidget#dcList::item:selected {{
+    background-color: {rgba(c.BORDER_PRIMARY, 35)};
+    color: {c.TEXT_NEON_CYAN};
+    border-left: 2px solid {c.TEXT_NEON_CYAN};
+}}
+
+/* ---- 标注画布 ----------------------------------------------------- */
+QFrame#dcCanvas {{
+    background-color: {c.BG_BASE};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: 4px;
+}}
+QLabel#dcCanvasCorner {{
+    color: {c.BORDER_PRIMARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: 8pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+    background: transparent;
+}}
+QLabel#dcCanvasHint {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: 12pt;
+    font-style: italic;
+    background: transparent;
+}}
+QLabel#dcCanvasHintAccent {{
+    color: {c.BORDER_PRIMARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: 10pt;
+    font-weight: bold;
+    letter-spacing: 2px;
+    background: transparent;
+}}
+
+/* ---- 缩放控制条按钮 / 百分比 -------------------------------------- */
+QPushButton#dcZoomBtn {{
+    background-color: {c.BG_BTN_BOTTOM};
+    color: {c.TEXT_PRIMARY};
+    border: 1px solid {rgba(c.BORDER_PRIMARY, 60)};
+    border-radius: 3px;
+    padding: 0;
+    min-width: {s.ANNOT_ZOOM_BTN_W}px;
+    max-width: {s.ANNOT_ZOOM_BTN_W}px;
+    min-height: {s.ANNOT_ZOOM_BTN_H}px;
+    max-height: {s.ANNOT_ZOOM_BTN_H}px;
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    font-weight: bold;
+}}
+QPushButton#dcZoomBtn:hover {{
+    background-color: {c.BG_BTN_HOVER_TOP};
+    color: {c.BORDER_HOVER};
+    border: 1px solid {c.BORDER_HOVER};
+}}
+QPushButton#dcZoomBtn:pressed {{
+    background-color: {c.BORDER_PRIMARY};
+    color: {c.BG_DEEP};
+}}
+QLabel#dcZoomPct {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_DATA};
+    font-size: 9pt;
+    font-weight: bold;
+    background: transparent;
+    min-width: {s.ANNOT_ZOOM_PCT_W}px;
+    text-align: center;
+}}
+
+/* ---- 底部 · 对象列表 + 操作栏 ------------------------------------ */
+QFrame#dcFooter {{
+    background-color: {c.BG_BTN_BOTTOM};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: 4px;
+    padding: 8px 10px;
+}}
+QListWidget#dcObjectList {{
+    background-color: transparent;
+    color: {c.TEXT_SECONDARY};
+    border: none;
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    padding: 0;
+    outline: none;
+}}
+QPushButton#dcPrimaryBtn {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_BTN_TOP}, stop:1 {c.BG_BTN_BOTTOM});
+    color: {c.TEXT_NEON_CYAN};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: 4px;
+    padding: 6px 18px;
+    font-family: {f.FAMILY_BUTTON};
+    font-size: 10pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+    min-width: 96px;
+}}
+QPushButton#dcPrimaryBtn:hover {{
+    background-color: {c.BG_BTN_HOVER_TOP};
+    border: 1px solid {c.BORDER_HOVER};
+}}
+QPushButton#dcPrimaryBtn:pressed {{
+    background-color: {c.BORDER_PRIMARY};
+    color: {c.BG_DEEP};
+}}
+
+/* ---- 历史 / 训练 页占位 ------------------------------------------ */
+QLabel#dcTabPlaceholder {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: 12pt;
+    font-style: italic;
+    background: transparent;
+}}
+QLabel#dcTabPlaceholderAccent {{
+    color: {c.BORDER_PRIMARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: 10pt;
+    font-weight: bold;
+    letter-spacing: 2px;
+    background: transparent;
+}}
+"""

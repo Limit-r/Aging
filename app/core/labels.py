@@ -264,3 +264,81 @@ LED_MATRIX_TITLE = "● 状态矩阵  //  STATUS MATRIX"
 # 右上角"立即复位"按钮
 RESET_BTN_TEXT = "⟲  复位视角"
 RESET_BTN_TOOLTIP = "把 3D 视角复位到初始位置（不打断数据）"
+
+
+# ---- 数据中心（Phase 6）-----------------------------------------------------
+# 页面标题 / 副标题 / 页签
+DATA_CENTER_TITLE = "数据中心"
+DATA_CENTER_SUBTITLE = "历史数据 · 数据标注 · 训练"
+DATA_TAB_HISTORY = "历史 / 趋势 / 导出"
+DATA_TAB_ANNOTATE = "数据标注"
+DATA_TAB_TRAIN = "训练 / 转换"
+
+# 历史 / 趋势 / 导出 页（后续实现）
+DATA_HISTORY_PLACEHOLDER = (
+    "历史数据查询 / 趋势图 / 数据导出 / 报表生成将在后续阶段实现"
+)
+
+# 数据标注页
+ANNOT_CATEGORY_LABEL = "类别"
+ANNOT_CATEGORY_ADD = "+ 新增类别"
+ANNOT_CATEGORY_MANAGE = "类别管理"
+ANNOT_IMAGE_LIST_TITLE = "图片列表"
+ANNOT_PREV_BTN = "上一张"
+ANNOT_NEXT_BTN = "下一张"
+ANNOT_CANVAS_TITLE = "标注画布"
+ANNOT_CANVAS_HINT = "选择类别后在画布上拖拽画框（Phase B 接入标注器）"
+ANNOT_OBJECT_LIST_TITLE = "当前图标注对象"
+ANNOT_OBJECT_LIST_EMPTY = "（暂无标注对象）"
+ANNOT_SAVE_BTN = "保存标注"
+ANNOT_CANCEL_BTN = "取消"
+
+# 图片文件夹导入 + XML 映射
+ANNOT_IMPORT_BTN = "⇪ 导入图片"
+ANNOT_IMPORT_PROMPT = "选择图片文件夹（JPEGImages）"
+ANNOT_IMPORT_DIALOG_TITLE = "导入图片文件夹"
+ANNOT_IMPORT_SUMMARY = "已导入 {total} 张图片，{mapped} 张已有标注"
+ANNOT_IMPORT_EMPTY = "（请先导入图片文件夹）"
+ANNOT_IMAGE_MAPPED_MARK = "●  "
+ANNOT_IMAGE_UNMAPPED_MARK = "○  "
+ANNOT_IMAGE_ENTRY = "{mark}{name}"
+ANNOT_OBJECT_ENTRY = "{name}  ({x1},{y1})-({x2},{y2})"
+
+# 标注器交互
+ANNOT_CANVAS_EMPTY_HINT = "选择图片后，拖动鼠标绘制标注框"
+ANNOT_CANVAS_NO_CATEGORY = "先在顶部选择标注类别"
+ANNOT_CANVAS_CATEGORY_READY = "当前类别：{cat}"
+ANNOT_DELETE_SELECTED_BTN = "删除选中"
+ANNOT_OBJECTS_SAVED = "标注已保存：{path}"
+ANNOT_OBJECTS_SAVE_FAILED = "保存失败：{reason}"
+ANNOT_OBJECTS_EMPTY_SAVE = "当前没有标注对象"
+
+# 图片导航 / 当前索引
+ANNOT_INDEX_TEMPLATE = "{cur} / {total}"
+ANNOT_INDEX_EMPTY = "0 / 0"
+
+# 缩放控制条
+ANNOT_ZOOM_OUT = "−"
+ANNOT_ZOOM_IN = "+"
+ANNOT_ZOOM_FIT = "适应"
+ANNOT_ZOOM_ORIG = "1:1"
+ANNOT_ZOOM_PCT_TEMPLATE = "{pct}%"
+ANNOT_ZOOM_TOOLTIP_OUT = "缩小（Ctrl+滚轮 / -）"
+ANNOT_ZOOM_TOOLTIP_IN = "放大（Ctrl+滚轮 / +）"
+ANNOT_ZOOM_TOOLTIP_FIT = "适应视图（0）"
+ANNOT_ZOOM_TOOLTIP_ORIG = "原始大小（1）"
+
+# 未保存提示
+ANNOT_UNSAVED_TITLE = "未保存的标注"
+ANNOT_UNSAVED_PROMPT_TEMPLATE = (
+    "图片「{name}」有尚未保存的标注改动。\n"
+    "切换图片将丢失这些改动，是否继续？"
+)
+ANNOT_UNSAVED_SAVE = "保存并切换"
+ANNOT_UNSAVED_DISCARD = "放弃改动并切换"
+ANNOT_UNSAVED_CANCEL = "取消"
+
+# 训练 / 转换 页（后续实现）
+DATA_TRAIN_PLACEHOLDER = (
+    "一键转换（gen_5class / prepare_data / gen_fp_txt）与子进程训练将在后续阶段实现"
+)
