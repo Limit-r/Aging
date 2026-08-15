@@ -4,14 +4,15 @@
 
 由 led_pipeline/extract_video_frames.py 与 extract_frames_A.py 整合而来，
 统一支持 A / FP 两个系列，视频源统一为项目根 video/ 目录。
+(led_pipeline 已迁移至 ml/, 数据集位于 ml/datasets/)
 
 用法:
     conda activate Aging
     python tools/extract_frames.py
 
 系列命名规则:
-    - A:  前缀 aNN, 输出到 led_pipeline/datasets/A/JPEGImages, 编号 aNN_XXXXXX.jpg (偶数风格)
-    - FP: 前缀 frame, 输出到 led_pipeline/datasets/FP/JPEGImages, 编号 frame_XXXXXX.jpg (连续编号)
+    - A:  前缀 aNN, 输出到 ml/datasets/A/JPEGImages, 编号 aNN_XXXXXX.jpg (偶数风格)
+    - FP: 前缀 frame, 输出到 ml/datasets/FP/JPEGImages, 编号 frame_XXXXXX.jpg (连续编号)
 """
 import cv2
 from pathlib import Path
@@ -20,9 +21,10 @@ from pathlib import Path
 # 配置
 # ============================================================
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+ML_ROOT = PROJECT_ROOT / 'ml'
 VIDEO_DIR = PROJECT_ROOT / 'video'
-A_JPEG_DIR = PROJECT_ROOT / 'led_pipeline' / 'datasets' / 'A' / 'JPEGImages'
-FP_JPEG_DIR = PROJECT_ROOT / 'led_pipeline' / 'datasets' / 'FP' / 'JPEGImages'
+A_JPEG_DIR = ML_ROOT / 'datasets' / 'A' / 'JPEGImages'
+FP_JPEG_DIR = ML_ROOT / 'datasets' / 'FP' / 'JPEGImages'
 
 # 视频 -> 目标前缀映射（键为 video/ 下的文件名，值决定系列与命名）
 #   - 'frame'  -> FP 系列

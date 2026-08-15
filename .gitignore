@@ -118,15 +118,15 @@ config_runtime.json
 eval_map_out/
 
 # ============================================================
-# led_pipeline 推理输出（detect/outputs/ 一次性可视化结果）
+# 检测/推理输出（detect/outputs/ 一次性可视化结果）
 # ============================================================
-led_pipeline/detect/outputs/
+detect/outputs/
 
 # ============================================================
-# led_pipeline 生成型训练日志（loss_* 曲线 / tfevents，可再生成）
+# 生成型训练日志（loss_* 曲线 / tfevents，可再生成）
 # ============================================================
-led_pipeline/weights/**/loss_*/
-led_pipeline/train/weights/**/loss_*/
+ml/weights/**/loss_*/
+ml/train/weights/**/loss_*/
 
 # ============================================================
 # 临时提交信息（git commit -F 使用）

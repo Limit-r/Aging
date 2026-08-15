@@ -5,7 +5,7 @@
 - 数据标注（Phase B 接入画框标注器）
 - 训练 / 转换（后续实现）
 
-懒加载约束：本页顶部**不** import led_pipeline，
+懒加载约束：本页顶部**不** import ml，
 保证 Main.py 启动不加载 torch / opencv / openvino 等重型依赖；
 数据标注 / 训练能力在后续阶段按需加载。
 """
@@ -435,16 +435,16 @@ class DataCenterPage(QWidget):
 
     # -- 懒加载 annotation_io（切到标注页才 import，保持启动轻量） ---------------
     def _lazy_annotation_io(self):
-        """懒加载 led_pipeline.annotation_io 模块。"""
-        from led_pipeline.annotation_io import (
+        """懒加载 ml.annotation_io 模块。"""
+        from ml.annotation_io import (
             ImageEntry, count_mapped, parse_annotation, scan_image_folder,
             write_annotation,
         )
         return ImageEntry, count_mapped, parse_annotation, scan_image_folder, write_annotation
 
     def _lazy_annotation_widget(self):
-        """懒加载 led_pipeline.annotation_widget 模块。"""
-        from led_pipeline.annotation_widget import AnnotationCanvas
+        """懒加载 ml.annotation_widget 模块。"""
+        from ml.annotation_widget import AnnotationCanvas
         return AnnotationCanvas
 
     def _make_canvas(self):
