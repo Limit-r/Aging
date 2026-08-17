@@ -10,8 +10,8 @@ A 系列视频检测脚本 (4 类 YOLO + TinyConv 二分类)
   - 亮灭时序折线图 (保存为 PNG)
 
 用法:
-  python detect/detect_a_video.py --video D:\Aging\Video\001.mp4
-  python detect/detect_a_video.py --video D:\Aging\Video\001.mp4 --conf 0.25
+  python detect/detect_a_video.py --video D:\\Aging\\Video\\001.mp4
+  python detect/detect_a_video.py --video D:\\Aging\\Video\\001.mp4 --conf 0.25
 """
 import argparse
 import os
@@ -36,7 +36,7 @@ from utils.utils import get_classes
 from classifier.model import TinyConv
 
 # ===== 默认路径 =====
-A_WEIGHTS = str(ML_ROOT / 'train' / 'weights' / 'A' / 'model_best_precision_deploy.pt')
+A_WEIGHTS = str(ML_ROOT / 'weights' / 'A' / 'model_best_precision_deploy.pt')
 A_LABELS  = str(ML_ROOT / 'datasets' / 'A' / 'label_5class.txt')
 A_CLF_WEIGHTS = str(ML_ROOT / 'classifier' / 'weights' / 'best_tinyconv_a.pth')
 A_OUTDIR  = str(Path(__file__).resolve().parents[1] / 'detect' / 'outputs')

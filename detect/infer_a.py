@@ -26,8 +26,8 @@ from utils.utils_bbox import DecodeBox
 from utils.utils import get_classes
 
 # A 系列权重路径
-A_WEIGHTS = str(ML_ROOT / 'train' / 'weights' / 'A' / 'best_epoch_weights.pth')
-A_DEPLOY  = str(ML_ROOT / 'train' / 'weights' / 'A' / 'model_best_precision_deploy.pt')
+A_WEIGHTS = str(ML_ROOT / 'weights' / 'A' / 'best_epoch_weights.pth')
+A_DEPLOY  = str(ML_ROOT / 'weights' / 'A' / 'model_best_precision_deploy.pt')
 A_LABELS  = str(ML_ROOT / 'datasets' / 'A' / 'label.txt')
 A_OUTDIR  = str(PROJECT_ROOT / 'detect' / 'outputs' / 'A')
 A_VAL_TXT = str(ML_ROOT / 'datasets' / 'A' / '2025_val.txt')

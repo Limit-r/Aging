@@ -41,7 +41,7 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 DATASET_DIR = str(ML_ROOT / 'datasets' / 'A')
 JPEG_DIR = os.path.join(DATASET_DIR, 'JPEGImages')
 ANNO_DIR = os.path.join(DATASET_DIR, 'Annotations')
-WEIGHTS = str(ML_ROOT / 'train' / 'weights' / 'A' / 'model_best_precision_deploy.pt')
+WEIGHTS = str(ML_ROOT / 'weights' / 'A' / 'model_best_precision_deploy.pt')
 CLASSES_PATH = os.path.join(DATASET_DIR, 'label.txt')
 PHI = 'n'
 

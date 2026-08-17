@@ -11,14 +11,18 @@ Level 3: OCR 文字正下方延伸 OCR 区域 (PWR=100px, VPL/CPL=80px) →
 最后输出 CSV + 带彩色三级框的可视化预览/视频
 
 Usage:
-    python inference/scripts/fp_cascade_pipeline.py --image datasets/FP/JPEGImages/frame_000001.jpg
-    python inference/scripts/fp_cascade_pipeline.py --video FP00.mp4 --no_show --max_frames 30
+    python detect/fp_cascade_pipeline.py --image ml/datasets/FP/JPEGImages/frame_000001.jpg
+    python detect/fp_cascade_pipeline.py --video FP00.mp4 --no_show --max_frames 30
+
+注：本脚本为早期 4 类实验 pipeline（YOLO 4 类 + OCR 分级），已非主线架构
+（主线为 5 类 YOLO + TinyConv 二分类），保留仅供历史复现。
 """
 import argparse
 import os
 import sys
 import time
 import csv
+from pathlib import Path
 import copy
 import threading
 from collections import deque
@@ -29,9 +33,11 @@ import torch
 from PIL import Image, ImageDraw, ImageFont
 
 # ------------------------------------------------------------
-# 项目根路径
+# 项目/模型根路径
 # ------------------------------------------------------------
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]          # d:\Aging
+ML_ROOT = PROJECT_ROOT / 'ml'                                # 模型/训练代码根
+ROOT = str(ML_ROOT)                                          # 兼容旧变量名
 sys.path.insert(0, ROOT)
 
 from model.YOLOV8 import YoloBody
@@ -668,9 +674,9 @@ def parse_args():
     p.add_argument('--max_frames', type=int, default=None, help='最大处理帧数 (视频)')
     p.add_argument('--no_show', action='store_true', help='不显示预览窗口')
     p.add_argument('--save_video', type=str, default=None,
-                   help='输出可视化视频路径 (默认: inference/outputs/FP_cascade/<视频名>_cascade.mp4)')
+                   help='输出可视化视频路径 (默认: detect/outputs/FP_cascade/<视频名>_cascade.mp4)')
     p.add_argument('--save_csv', type=str, default=None,
-                   help='输出 LED 状态 CSV 路径 (默认: inference/outputs/FP_cascade/led_states_<视频名>.csv)')
+                   help='输出 LED 状态 CSV 路径 (默认: detect/outputs/FP_cascade/led_states_<视频名>.csv)')
     return p.parse_args()
 
 
@@ -778,7 +784,7 @@ def run_video(args, det):
     Hv = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     base = os.path.splitext(os.path.basename(args.video))[0]
-    out_dir = os.path.join(ROOT, 'inference/outputs/FP_cascade')
+    out_dir = os.path.join(PROJECT_ROOT, 'detect/outputs/FP_cascade')
     os.makedirs(out_dir, exist_ok=True)
     save_video = args.save_video or os.path.join(out_dir, f'{base}_cascade.mp4')
     save_csv = args.save_csv or os.path.join(out_dir, f'led_states_{base}.csv')
