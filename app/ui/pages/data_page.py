@@ -10,44 +10,44 @@
 数据标注 / 训练能力在后续阶段按需加载。
 """
 
+import datetime
 import os
+import re
+import sys
 
-# 布局：
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │ [DC] 数据中心   DATA CENTER · ANNOTATION · TRAINING     [● ACTIVE]      │  顶栏 56
-# │ ────────────────────────────────────────────────────────────────────    │
-# │ [历史/趋势/导出] [数据标注] [训练/转换]                                   │  页签 40
-# │ ┌─[类别工具条]──────────────────────────────────────────────────────┐   │  类别 44
-# │ │ 类别 │ ▣FP_SIG_area ▣FP_PWR_area ▣FP_VPL ▣FP_CPL ▣FP_PWR ▣+新增 │   │
-# │ │                                              [↻ 类别管理] [⇪ 导入] │   │
-# │ └────────────────────────────────────────────────────────────────────┘   │
-# │ ┌─[图片列表 220]┐ ┌─[画布]───────────────────────────────────────┐    │
-# │ │ ● 图片列表    │ │ ┌─────────────────────────────────────────┐  │    │
-# │ │ ▣ frame_450  │ │ │ ⊕ CANVAS 1920×1080      □ □ □  ✕       │  │    │
-# │ │ ▣ frame_500  │ │ │                                         │  │    │
-# │ │ ▣ frame_536  │ │ │       ★ 等待画框标注器 (Phase B) ★       │  │    │
-# │ │              │ │ │                                         │  │    │
-# │ │ [◀ 上一张]   │ │ └─────────────────────────────────────────┘  │    │
-# │ │ [下一张 ▶]   │ └──────────────────────────────────────────────┘    │
-# │ └──────────────┘                                                    │
-# │ ┌─[对象列表 + 操作]──────────────────────────────────────────────┐    │
-# │ │ 标注对象 (0)                       [取消]   [💾 保存标注]         │    │
-# │ └─────────────────────────────────────────────────────────────────┘    │
-# └─────────────────────────────────────────────────────────────────────────┘
-
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QThread, QTimer, pyqtSignal
+from PyQt5.QtGui import QColor, QTextCharFormat, QTextCursor
 from PyQt5.QtWidgets import (
-    QButtonGroup, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton, QSplitter, QStackedWidget, QVBoxLayout,
-    QWidget,
+    QButtonGroup, QFileDialog, QFrame,
+    QHBoxLayout,
+    QInputDialog, QLabel, QListWidget,
+    QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
+    QSplitter, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
-from app.core import labels
+from app.core import config, labels
 from app.core.tokens import DEFAULT_TOKENS
 
+# 训练页 · 运行期正则（进度 / 指标解析，见 _parse_train_output）
+_RE_YOLO_EPOCH = re.compile(r"Epoch:(\d+)/(\d+)")
+_RE_CLS_EPOCH = re.compile(r"\bepoch\s+(\d+)/(\d+)")
+_RE_METRICS = re.compile(r"Precision=([\d.]+), Recall=([\d.]+), F1-Score=([\d.]+)")
+_RE_MAP_IMPROVE = re.compile(r"mAP improved from [\d.]+ to ([\d.]+)")
+_RE_GPU_COUNT = re.compile(r"Gpu Device Count : (\d+)")
+# ANSI 颜色转义（训练脚本输出 \033[1;32m 等，GUI 显示前剥离）
+_RE_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
-# 标注页占位类别（Phase A 接入类别注册表后移除）
-_PLACEHOLDER_CATEGORIES = ("FP_SIG_area", "FP_PWR_area", "FP_VPL", "FP_CPL", "FP_PWR")
+# 训练页 · 时间换算常量（避免 3600 / 60 数字字面量）
+_SEC_PER_HOUR = 3600
+_SEC_PER_MIN = 60
+
+# 仓库根（data_page.py -> app/ui/pages -> 4 级 dirname）
+_PROJECT_ROOT = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+
+# 标注页类别：Phase A 后改为从类别注册表派生，不再硬编码
+# 见 _category_names()（懒加载，保持启动不 import ml）
 
 
 class DataCenterPage(QWidget):
@@ -67,7 +67,29 @@ class DataCenterPage(QWidget):
         self._canvas = None            # AnnotationCanvas（懒加载）
         self._current_entry = None     # 当前选中 ImageEntry
         self._xml_dir = None           # 当前导入的 XML 目录
+        self._current_series = ""      # 当前标注图片所属系列（决定显示的类别）
         self._skip_item_change = False  # 未保存提示取消时回退选中，避免递归
+        # 训练子进程（QProcess，信号驱动异步读日志，不阻塞事件循环）
+        self._proc: QProcess = None
+        self._pending_cmds = []
+        self._proc_buf = ""            # stdout 未读完整的残行
+        self._train_ts0 = 0.0
+        # 训练页 · 深度优化状态（进度 / 指标 / 阶段 / 日志持久化 / 设备检测）
+        self._train_cur_stage = None   # 当前阶段 key（DATA/YOLO/ROI/CLS）
+        self._train_stage_t0 = 0.0     # 当前阶段开始时间
+        self._train_epoch_cur = 0
+        self._train_epoch_total = 0
+        self._train_metrics = None     # (mAP, P, R, F1)
+        self._train_progress = 0
+        self._train_log_path = None    # 本轮训练日志持久化文件
+        self._train_log_fh = None      # 文件句柄
+        self._train_elapsed_timer = None
+        self._stop_requested = False   # 用户确认停止标记
+        self._dev_proc: QProcess = None  # 设备检测子进程
+        self._dev_info = None          # 最近一次环境探测结果（ml.auto_params.EnvInfo）
+        self._train_pending_cb = None  # 环境探测完成后的回调
+        self._pending_run = None       # 等待探测完成后启动的阶段列表
+        self._last_rec = None          # 最近一次自动推荐结果（供日志备注复用）
         self._build_ui()
 
     # -- UI 构建 -------------------------------------------------------------
@@ -89,6 +111,20 @@ class DataCenterPage(QWidget):
         self._stack.addWidget(self._build_train_page())
         root.addWidget(self._build_tabs_bar())
         root.addWidget(self._stack, 1)
+        # 启动后自动探测环境 + 刷新数据集概览（不点按钮，进来即显示）
+        QTimer.singleShot(0, self._auto_probe_on_startup)
+
+    def _auto_probe_on_startup(self) -> None:
+        """启动时自动评估环境与数据集概览。
+        注：用 QTimer.singleShot(0) 延后到事件循环，让首帧先渲染完。"""
+        try:
+            self._detect_device()
+        except Exception:
+            pass
+        try:
+            self._refresh_dataset_overview()
+        except Exception:
+            pass
 
     # -- 顶栏：徽章 + 标题 + 副标题 + 状态 -------------------------------------
     def _build_header(self) -> QFrame:
@@ -167,8 +203,595 @@ class DataCenterPage(QWidget):
     def _build_history_page(self) -> QWidget:
         return self._build_placeholder_page(labels.DATA_TAB_HISTORY, labels.DATA_HISTORY_PLACEHOLDER)
 
+    # -- 训练 / 转换页 ----------------------------------------------------------
     def _build_train_page(self) -> QWidget:
-        return self._build_placeholder_page(labels.DATA_TAB_TRAIN, labels.DATA_TRAIN_PLACEHOLDER)
+        """统一 9 类模型：训练控制区（状态/参数/启动合一）+ 日志回显。"""
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(0, self._s.DATA_PAGE_SPACING, 0, 0)
+        lay.setSpacing(self._s.DATA_PAGE_SPACING)
+
+        overview = QLabel(labels.TRAIN_TAB_OVERVIEW)
+        overview.setObjectName("dcTrainOverview")
+        lay.addWidget(overview)
+
+        lay.addWidget(self._build_train_control_section(), 0)
+        lay.addWidget(self._build_train_log_section(), 1)
+        return page
+
+    def _build_train_control_section(self) -> QFrame:
+        """训练控制区（合并：状态 / 自动推荐 / 环境&数据&续训 / 启动）。
+        原 3 个分段已合并为同一卡片，自上而下：状态条 → 进度 → 推荐 → 环境行 → 续训行 → 主操作 → 提示。"""
+        sec = QFrame()
+        sec.setObjectName("dcTrainStatusSection")
+        v = QVBoxLayout(sec)
+        v.setContentsMargins(self._s.TRAIN_CARD_PAD_X, self._s.TRAIN_CARD_PAD_Y,
+                             self._s.TRAIN_CARD_PAD_X, self._s.TRAIN_CARD_PAD_Y)
+        v.setSpacing(self._s.TRAIN_STATUS_GAP)
+
+        # ① 状态条：阶段 + 指标（一行）
+        status_row = QHBoxLayout()
+        status_row.setSpacing(self._s.TRAIN_STATUS_GAP)
+        self._train_stage_lb = QLabel(labels.TRAIN_STATUS_STAGE.format(
+            stage=labels.TRAIN_STAGE_IDLE))
+        self._train_stage_lb.setObjectName("dcTrainStageLabel")
+        status_row.addWidget(self._train_stage_lb)
+        status_row.addStretch(1)
+        self._train_metrics_lb = QLabel(labels.TRAIN_METRICS_EMPTY)
+        self._train_metrics_lb.setObjectName("dcTrainMetricsLabel")
+        status_row.addWidget(self._train_metrics_lb)
+        v.addLayout(status_row)
+
+        # ② 进度条 + ETA 状态行（紧贴进度条上方一行）
+        self._train_status_lb = QLabel(labels.TRAIN_STATUS_ETA_IDLE)
+        self._train_status_lb.setObjectName("dcTrainStatusLabel")
+        v.addWidget(self._train_status_lb)
+        self._train_progress_bar = QProgressBar()
+        self._train_progress_bar.setObjectName("dcTrainProgress")
+        self._train_progress_bar.setFixedHeight(self._s.TRAIN_PROGRESS_H)
+        self._train_progress_bar.setValue(0)
+        v.addWidget(self._train_progress_bar)
+        self._train_elapsed_timer = QTimer(self)
+        self._train_elapsed_timer.setInterval(config.TRAIN_ELAPSED_TICK_MS)
+        self._train_elapsed_timer.timeout.connect(self._on_train_tick)
+
+        # ③ 信息汇总：设备 + 数据集 + 推荐（合并为一行，仅文本，无按钮）
+        self._train_dev_lb = QLabel(labels.TRAIN_DEVICE_EMPTY)
+        self._train_dev_lb.setObjectName("dcTrainStatusLabel")
+        self._train_ds_lb = QLabel(labels.TRAIN_DATASET_LABEL + "  " + labels.TRAIN_DATASET_EMPTY)
+        self._train_ds_lb.setObjectName("dcTrainStatusLabel")
+        self._train_auto_summary = QLabel(labels.TRAIN_AUTO_WAIT)
+        self._train_auto_summary.setObjectName("dcTrainStatusLabel")
+        self._train_auto_summary.setWordWrap(True)
+        info_row = QHBoxLayout()
+        info_row.setSpacing(self._s.TRAIN_PARAM_GAP)
+        info_row.addWidget(self._train_dev_lb, 1)
+        info_row.addSpacing(self._s.TRAIN_PARAM_GAP)
+        info_row.addWidget(self._train_ds_lb, 1)
+        info_row.addSpacing(self._s.TRAIN_PARAM_GAP)
+        info_row.addWidget(self._train_auto_summary, 1)
+        v.addLayout(info_row)
+
+        # ④ 主操作：高级·单步 + 一键完整流程 + 停止
+        action_row = QHBoxLayout()
+        action_row.setSpacing(self._s.TRAIN_PARAM_GAP)
+        advanced = QToolButton()
+        advanced.setObjectName("dcGhostBtn")
+        advanced.setText(labels.TRAIN_BTN_ADVANCED)
+        advanced.setFixedWidth(self._s.TRAIN_MENU_ADV_W)
+        advanced.setPopupMode(QToolButton.InstantPopup)
+        adv_menu = QMenu(advanced)
+        for text, fn in (
+            (labels.TRAIN_BTN_GENDATA, lambda: self._train_run(["DATA"])),
+            (labels.TRAIN_BTN_TRAIN_YOLO, lambda: self._train_run(["YOLO"])),
+            (labels.TRAIN_BTN_MERGE_ROI, lambda: self._train_run(["ROI"])),
+            (labels.TRAIN_BTN_TRAIN_CLS, lambda: self._train_run(["CLS"])),
+        ):
+            act = adv_menu.addAction(text)
+            act.triggered.connect(fn)
+        advanced.setMenu(adv_menu)
+        action_row.addWidget(advanced)
+        action_row.addStretch(1)
+        self._train_oneclick = QPushButton(labels.TRAIN_BTN_ONECLICK)
+        self._train_oneclick.setObjectName("dcPrimaryBtn")
+        self._train_oneclick.clicked.connect(self._train_run_all)
+        action_row.addWidget(self._train_oneclick)
+        self._train_stop_btn = QPushButton(labels.TRAIN_BTN_STOP)
+        self._train_stop_btn.setObjectName("dcGhostBtn")
+        # 注：方法 _train_stop_handler 避免与按钮 self._train_stop_btn 同名歧义
+        self._train_stop_btn.clicked.connect(self._train_stop_handler)
+        self._train_stop_btn.setEnabled(False)
+        action_row.addWidget(self._train_stop_btn)
+        v.addLayout(action_row)
+
+        # ⑥ 提示（仅运行期显示；空闲时不渲染，避免占空）
+        self._train_hint = QLabel("")
+        self._train_hint.setObjectName("dcTrainHint")
+        self._train_hint.setVisible(False)
+        v.addWidget(self._train_hint)
+
+        return sec
+
+    def _build_train_log_section(self) -> QFrame:
+        """日志回显分段。"""
+        sec = QFrame()
+        sec.setObjectName("dcTrainSection")
+        v = QVBoxLayout(sec)
+        v.setContentsMargins(self._s.TRAIN_CARD_PAD_X, self._s.TRAIN_CARD_PAD_Y,
+                             self._s.TRAIN_CARD_PAD_X, self._s.TRAIN_CARD_PAD_Y)
+        v.setSpacing(self._s.DATA_PAGE_SPACING)
+
+        title = QLabel(labels.TRAIN_SECTION_LOG)
+        title.setObjectName("dcTrainSectionTitle")
+        v.addWidget(title)
+
+        self._train_log = QPlainTextEdit()
+        self._train_log.setObjectName("dcTrainLog")
+        self._train_log.setReadOnly(True)
+        self._train_log.setMinimumHeight(self._s.TRAIN_LOG_MIN_H)
+        v.addWidget(self._train_log)
+        return sec
+
+    # ---- 训练子进程：worker / 触发 / 停止 -----------------------------------
+    def _train_params(self) -> dict:
+        """返回最终生效的超参数：始终由系统自动推荐（phi 固定为 n）。"""
+        rec = self._recommended_params()
+        self._last_rec = rec           # 供日志备注复用，避免重复统计
+        return {
+            "phi": rec.phi,            # 固定为 "n"
+            "yolo_epochs": rec.yolo_epochs,
+            "yolo_batch": rec.yolo_batch,
+            "yolo_lr": rec.yolo_lr,
+            "cls_epochs": rec.cls_epochs,
+            "cls_batch": rec.cls_batch,
+            "cls_lr": rec.cls_lr,
+        }
+
+    def _recommended_params(self):
+        """自动推荐：结合最近一次环境探测（未探测则按保守默认）与当前数据集。"""
+        from ml.train import auto_params
+        env = self._dev_info or auto_params.EnvInfo()
+        ds = auto_params.dataset_stats()
+        return auto_params.recommend(env, ds)
+
+    def _train_run_all(self) -> None:
+        """一键完整流程：DATA → YOLO → ROI → CLS 串行。"""
+        self._train_run(["DATA", "YOLO", "ROI", "CLS"])
+
+    def _train_run(self, stages) -> None:
+        """启动一串训练阶段；自动模式下若尚未探测环境，先探测再启动。"""
+        if self._proc is not None and self._proc.state() != QProcess.NotRunning:
+            return
+        if self._dev_proc is not None and self._dev_proc.state() != QProcess.NotRunning:
+            return  # 环境探测进行中，等待完成回调后自动启动
+        if self._dev_info is None:
+            self._pending_run = list(stages)
+            self._set_hint(labels.TRAIN_AUTO_PROBING)
+            self._detect_device(self._start_pending_run)
+            return
+        self._start_run(stages)
+
+    def _start_pending_run(self) -> None:
+        stages = self._pending_run or []
+        self._pending_run = None
+        if stages:
+            self._start_run(stages)
+
+    def _start_run(self, stages) -> None:
+        """真正启动训练：打开日志、置状态、串行派发。"""
+        self._pending_cmds = list(stages)
+        self._proc = None
+        self._proc_buf = ""
+        self._train_ts0 = self._time_now()
+        self._stop_requested = False
+        self._open_train_log()
+
+        if self._pending_cmds:
+            self._train_oneclick.setEnabled(False)
+            self._train_stop_btn.setEnabled(True)
+            self._set_hint(labels.TRAIN_HINT_RUNNING, running=True)
+            self._spawn_next_cmd()
+
+    def _time_now(self) -> float:
+        import time
+        return time.time()
+
+    def _spawn_next_cmd(self) -> None:
+        if not self._pending_cmds:
+            self._on_all_done()
+            return
+        stage = self._pending_cmds[0]
+        p = self._train_params()
+        if stage in ("YOLO", "CLS"):
+            # 自动分配说明写入日志（可读性优先，见 labels.TRAIN_AUTO_*）
+            self._append_log(self._auto_notes_text(),
+                             color=DEFAULT_TOKENS.colors.TEXT_DIM)
+        if stage == "YOLO":
+            params = {"epochs": p["yolo_epochs"], "batch": p["yolo_batch"],
+                      "lr": p["yolo_lr"], "phi": p["phi"]}
+        elif stage == "CLS":
+            params = {"epochs": p["cls_epochs"], "batch": p["cls_batch"],
+                      "lr": p["cls_lr"]}
+        else:
+            params = {}
+
+        # 阶段级状态初始化（进度 / 指标 / 计时）
+        self._train_cur_stage = stage
+        self._train_stage_t0 = self._time_now()
+        self._train_epoch_cur = 0
+        self._train_epoch_total = 0
+        self._train_metrics = None
+        self._train_progress = 0
+        self._train_progress_bar.setValue(0)
+        self._train_stage_lb.setText(labels.TRAIN_STATUS_STAGE.format(
+            stage=labels.TRAIN_STAGE_NAMES.get(stage, stage)))
+        self._train_metrics_lb.setText(labels.TRAIN_METRICS_EMPTY)
+        if self._train_elapsed_timer is not None:
+            self._train_elapsed_timer.start()
+
+        from ml.train import training_runner
+        from ml.train.training_runner import build_cmd
+        cmd = build_cmd(stage, params)
+        self._append_log(labels.TRAIN_STARTING.format(cmd=" ".join(map(str, cmd))),
+                         color=DEFAULT_TOKENS.colors.TEXT_NEON_CYAN)
+
+        proc = QProcess(self)
+        proc.setWorkingDirectory(training_runner.PROJECT_ROOT)
+        proc.setProcessChannelMode(QProcess.MergedChannels)  # stderr 并入 stdout，防死锁
+        penv = QProcessEnvironment.systemEnvironment()
+        penv.insert("PYTHONIOENCODING", "utf-8")   # 子进程统一 utf-8 输出，避免 GBK 乱码
+        penv.insert("PYTHONUNBUFFERED", "1")
+        proc.setProcessEnvironment(penv)
+        proc.readyReadStandardOutput.connect(self._on_proc_out)
+        proc.finished.connect(self._on_proc_finished)
+        proc.errorOccurred.connect(self._on_proc_error)
+        self._proc = proc
+        self._proc_buf = ""
+        proc.start(cmd[0], cmd[1:])
+
+    def _on_proc_out(self) -> None:
+        """QProcess 输出就绪：逐行解析进度/指标并着色回显（合并通道读 stdout）。"""
+        if self._proc is None:
+            return
+        raw = self._proc.readAllStandardOutput()
+        data = bytes(raw).decode("utf-8", errors="replace")
+        data = self._proc_buf + data
+        lines = data.split("\n")
+        self._proc_buf = lines.pop()          # 保留未读完整的残行
+        for ln in lines:
+            ln = _RE_ANSI.sub("", ln).rstrip("\r")
+            if not ln:
+                continue
+            color = self._parse_train_output(ln)
+            self._append_log(ln, color=color)
+
+    def _parse_train_output(self, line: str):
+        """解析一行训练输出：更新进度/指标，返回着色 hex（None=默认色）。"""
+        c = DEFAULT_TOKENS.colors
+        low = line.lower()
+        if line.startswith("==") or line.startswith("──"):
+            return c.TEXT_NEON_CYAN
+        if re.search(r"error|traceback|failed|out of memory", low):
+            return c.TEXT_DANGER
+        m = _RE_YOLO_EPOCH.search(line)
+        if m:
+            self._train_epoch_cur = int(m.group(1))
+            self._train_epoch_total = int(m.group(2))
+            if self._train_epoch_total > 0:
+                self._train_progress = int(round(
+                    self._train_epoch_cur * config.TRAIN_PROGRESS_PCT / self._train_epoch_total))
+                self._train_progress_bar.setValue(self._train_progress)
+            return c.TEXT_NEON_GREEN
+        m = _RE_CLS_EPOCH.search(line)
+        if m:
+            self._train_epoch_cur = int(m.group(1))
+            self._train_epoch_total = int(m.group(2))
+            if self._train_epoch_total > 0:
+                self._train_progress = int(round(
+                    self._train_epoch_cur * config.TRAIN_PROGRESS_PCT / self._train_epoch_total))
+                self._train_progress_bar.setValue(self._train_progress)
+            return c.TEXT_NEON_GREEN
+        m = _RE_METRICS.search(line)
+        if m:
+            mAP = self._train_metrics[0] if self._train_metrics else 0.0
+            self._train_metrics = (mAP, float(m.group(1)), float(m.group(2)),
+                                   float(m.group(3)))
+            self._update_metrics_label()
+            return c.TEXT_NEON_GREEN
+        m = _RE_MAP_IMPROVE.search(line)
+        if m:
+            prev = self._train_metrics or (0.0, 0.0, 0.0, 0.0)
+            self._train_metrics = (float(m.group(1)), prev[1], prev[2], prev[3])
+            self._update_metrics_label()
+            return c.TEXT_NEON_GREEN
+        return None
+
+    def _update_metrics_label(self) -> None:
+        if self._train_metrics is None:
+            self._train_metrics_lb.setText(labels.TRAIN_METRICS_EMPTY)
+            return
+        m, p, r, f = self._train_metrics
+        self._train_metrics_lb.setText(labels.TRAIN_METRICS.format(
+            m=round(m, 3), p=round(p, 3), r=round(r, 3), f=round(f, 3)))
+
+    def _on_train_tick(self) -> None:
+        """每秒刷新运行耗时与 ETA（仅训练运行期间）。"""
+        if self._proc is None:
+            return
+        elapsed = self._time_now() - self._train_ts0
+        if self._train_epoch_total > 0 and self._train_epoch_cur > 0:
+            per_epoch = (self._time_now() - self._train_stage_t0) / self._train_epoch_cur
+            eta = (self._train_epoch_total - self._train_epoch_cur) * per_epoch
+            self._train_status_lb.setText(labels.TRAIN_STATUS_EPOCH.format(
+                cur=self._train_epoch_cur, total=self._train_epoch_total,
+                elapsed=self._fmt_dur(elapsed), eta=self._fmt_dur(eta)))
+        else:
+            self._train_status_lb.setText(labels.TRAIN_STATUS_BUSY.format(
+                elapsed=self._fmt_dur(elapsed)))
+
+    @staticmethod
+    def _fmt_dur(sec: float) -> str:
+        """秒 → 'h/m/s' 可读时长（ETA 与耗时展示）。"""
+        sec = int(max(sec, 0))
+        h, rem = divmod(sec, _SEC_PER_HOUR)
+        m, s = divmod(rem, _SEC_PER_MIN)
+        if h:
+            return "%dh%02dm" % (h, m)
+        if m:
+            return "%dm%02ds" % (m, s)
+        return "%ds" % s
+
+    def _open_train_log(self) -> None:
+        """为本轮训练创建持久化日志文件（OSError 则静默降级为仅 UI 回显）。"""
+        try:
+            os.makedirs(os.path.join(_PROJECT_ROOT, config.LOG_DIR), exist_ok=True)
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            path = os.path.join(_PROJECT_ROOT, config.LOG_DIR, "train_%s.log" % ts)
+            self._train_log_path = path
+            self._train_log_fh = open(path, "w", encoding="utf-8")
+            self._append_log(labels.TRAIN_LOG_FILE_OPENED.format(path=path),
+                             color=DEFAULT_TOKENS.colors.TEXT_DIM)
+        except OSError:
+            self._train_log_path = None
+            self._train_log_fh = None
+
+    def _train_log_write(self, text: str) -> None:
+        if self._train_log_fh is not None:
+            try:
+                self._train_log_fh.write(str(text) + "\n")
+                self._train_log_fh.flush()
+            except OSError:
+                pass
+
+    def _on_proc_finished(self, exit_code: int, exit_status: int) -> None:
+        """子进程结束：记录阶段耗时，驱动下一阶段或结束流程。"""
+        if self._proc is None:
+            return
+        if self._proc_buf:
+            self._append_log(self._proc_buf)
+            self._proc_buf = ""
+        rc = int(exit_code)
+        stage = self._train_cur_stage
+        if not self._pending_cmds:            # 手动停止时可能已清空
+            if self._stop_requested:
+                self._set_hint(labels.TRAIN_HINT_STOPPED)
+            self._stop_requested = False
+            self._on_run_finished()
+            return
+        self._pending_cmds.pop(0)
+        if rc != 0:
+            self._append_log(labels.TRAIN_STAGE_FAILED.format(
+                stage=labels.TRAIN_STAGE_NAMES.get(stage, stage)),
+                color=DEFAULT_TOKENS.colors.TEXT_DANGER)
+            self._set_hint(labels.TRAIN_FAILED.format(reason="exit=%d" % rc), fail=True)
+            self._on_run_finished()
+            return
+        if stage == "DATA":
+            self._refresh_dataset_overview()   # 数据生成后即时刷新概览
+        if stage is not None:
+            sec = int(self._time_now() - self._train_stage_t0)
+            self._append_log(labels.TRAIN_STAGE_DONE_TEMPLATE.format(
+                stage=labels.TRAIN_STAGE_NAMES.get(stage, stage), sec=sec),
+                color=DEFAULT_TOKENS.colors.TEXT_NEON_GREEN)
+        if self._pending_cmds:
+            self._spawn_next_cmd()
+        else:
+            self._on_all_done()
+
+    def _on_proc_error(self, err: int) -> None:
+        if self._proc is None:
+            return
+        self._set_hint(labels.TRAIN_FAILED.format(reason="proc_err=%d" % int(err)), fail=True)
+
+    def _on_all_done(self) -> None:
+        el = self._time_now() - self._train_ts0
+        self._append_log(labels.TRAIN_DONE.format(sec=int(el)))
+        self._set_hint(labels.TRAIN_HINT_IDLE)
+        self._on_run_finished()
+
+    def _on_run_finished(self) -> None:
+        # 停止耗时刷新、关闭日志文件、复位状态区
+        if self._train_elapsed_timer is not None:
+            self._train_elapsed_timer.stop()
+        if self._train_log_fh is not None:
+            try:
+                self._train_log_fh.close()
+            except OSError:
+                pass
+            self._train_log_fh = None
+        self._train_cur_stage = None
+        self._train_stage_lb.setText(labels.TRAIN_STATUS_STAGE.format(
+            stage=labels.TRAIN_STAGE_IDLE))
+        self._train_status_lb.setText(labels.TRAIN_STATUS_ETA_IDLE)
+        self._train_progress_bar.setValue(0)
+        self._proc = None
+        self._train_stop_btn.setEnabled(False)
+        self._train_oneclick.setEnabled(True)
+
+    def _train_stop_handler(self) -> None:
+        """停止训练：弹确认框 → terminate → 宽限期后仍未退出再 kill。"""
+        proc = self._proc
+        if proc is None or proc.state() == QProcess.NotRunning:
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle(labels.TRAIN_STOP_CONFIRM_TITLE)
+        box.setText(labels.TRAIN_STOP_CONFIRM_MSG)
+        box.setIcon(QMessageBox.Question)
+        stop_btn = box.addButton(labels.TRAIN_BTN_STOP, QMessageBox.AcceptRole)
+        box.addButton(labels.ANNOT_CANCEL_BTN, QMessageBox.RejectRole)
+        box.setDefaultButton(stop_btn)
+        box.exec_()
+        if box.clickedButton() is not stop_btn:
+            return
+        self._stop_requested = True
+        self._pending_cmds = []
+        self._train_stop_btn.setEnabled(False)
+        self._set_hint(labels.TRAIN_HINT_STOPPING)
+        self._append_log(labels.TRAIN_HINT_STOPPING,
+                         color=DEFAULT_TOKENS.colors.PROGRESS_CHUNK_WARNING)
+        proc.terminate()
+        # 宽限期后仍未退出 → 强杀（进程已退出则 no-op）
+        QTimer.singleShot(config.TRAIN_STOP_GRACE_MS, lambda: self._force_kill(proc))
+
+    @staticmethod
+    def _force_kill(proc) -> None:
+        if proc is not None and proc.state() != QProcess.NotRunning:
+            proc.kill()
+
+    def _append_log(self, text: str, color=None) -> None:
+        if text == "":
+            return
+        self._train_log_write(text)
+        cursor = self._train_log.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        fmt = QTextCharFormat()
+        if color is not None:
+            fmt.setForeground(QColor(color))
+        cursor.insertText(str(text) + "\n", fmt)
+        self._train_log.setTextCursor(cursor)
+        sb = self._train_log.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def _set_hint(self, text: str, running: bool = False, fail: bool = False) -> None:
+        self._train_hint.setText(text)
+        self._train_hint.setProperty("running", running)
+        self._train_hint.setProperty("state", "fail" if fail else "")
+        self._train_hint.style().unpolish(self._train_hint)
+        self._train_hint.style().polish(self._train_hint)
+
+    # -- 训练页 · 数据集概览 / 设备检测 / 配置同步 -------------------------------
+    def _refresh_dataset_overview(self) -> None:
+        """统计 datasets/merged 下 train/val/test txt 的图数与框数。"""
+        from ml.train.training_runner import PROJECT_ROOT as ml_root
+        merged = os.path.join(ml_root, "datasets", "merged")
+
+        def _stats(split):
+            path = os.path.join(merged, "2025_%s.txt" % split)
+            n_img = 0
+            n_box = 0
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    for ln in f:
+                        ln = ln.strip()
+                        if not ln:
+                            continue
+                        n_img += 1
+                        n_box += len(ln.split()) - 1
+            return n_img, n_box
+
+        tr, boxes = _stats("train")
+        va, _ = _stats("val")
+        te, _ = _stats("test")
+        if tr == 0 and va == 0 and te == 0:
+            self._train_ds_lb.setText(labels.TRAIN_DATASET_EMPTY)
+            return
+        self._train_ds_lb.setText(labels.TRAIN_DATASET_TEMPLATE.format(
+            tr=tr, va=va, te=te, boxes=boxes))
+        self._update_auto_summary()   # 数据集变化 → 自动推荐同步刷新
+
+    def _detect_device(self, on_done=None) -> None:
+        """子进程探测硬件环境（GPU/CPU/内存），不 import torch 进 GUI 进程。
+
+        on_done: 可选回调，探测完成后调用（用于训练启动前的自动分配）。
+        """
+        if on_done is not None:
+            self._train_pending_cb = on_done   # 不覆盖已有回调（防「重新评估」抢跑）
+        self._train_dev_lb.setText(labels.TRAIN_DEVICE_PROBING)
+        self._train_auto_summary.setText(labels.TRAIN_AUTO_PROBING)
+        from ml.train import auto_params
+        from ml.train import training_runner
+        proc = QProcess(self)
+        proc.setWorkingDirectory(training_runner.PROJECT_ROOT)
+        penv = QProcessEnvironment.systemEnvironment()
+        penv.insert("PYTHONIOENCODING", "utf-8")
+        proc.setProcessEnvironment(penv)
+        proc.readyReadStandardOutput.connect(self._on_dev_proc_out)
+        proc.finished.connect(self._on_dev_proc_finished)
+        self._dev_proc = proc
+        proc.start(sys.executable, ["-c", auto_params.PROBE_SNIPPET])
+
+    def _on_dev_proc_out(self) -> None:
+        if self._dev_proc is None:
+            return
+        raw = self._dev_proc.readAllStandardOutput()
+        data = bytes(raw).decode("utf-8", errors="replace")
+        from ml.train import auto_params
+        self._dev_info = auto_params.parse_env_output(data)
+
+    def _on_dev_proc_finished(self, exit_code: int, exit_status: int) -> None:
+        info = self._dev_info
+        self._dev_proc = None
+        if info is not None and info.has_gpu:
+            self._train_dev_lb.setText(labels.TRAIN_DEVICE_TEMPLATE.format(
+                avail="GPU", name=info.gpu_name, count=info.gpu_count, mem=info.gpu_mem_gb))
+        else:
+            self._train_dev_lb.setText(labels.TRAIN_DEVICE_CPU)
+        self._update_auto_summary()
+        cb = self._train_pending_cb
+        self._train_pending_cb = None
+        if cb is not None:
+            cb()
+
+    # -- 训练页 · 自动分配参数 -------------------------------------------------
+    def _recompute_auto_params(self) -> None:
+        """「重新评估」：重新探测环境并刷新推荐摘要。"""
+        self._detect_device()
+
+    def _update_auto_summary(self) -> None:
+        """刷新自动分配推荐摘要（环境 + 数据集 + 推荐参数）。"""
+        if self._dev_info is None:
+            self._train_auto_summary.setText(labels.TRAIN_AUTO_WAIT)
+            return
+        rec = self._recommended_params()
+        self._last_rec = rec
+        self._train_auto_summary.setText(labels.TRAIN_AUTO_SUMMARY.format(
+            phi=rec.phi, yep=rec.yolo_epochs, ybatch=rec.yolo_batch,
+            cep=rec.cls_epochs, cbatch=rec.cls_batch))
+
+    def _auto_notes_text(self) -> str:
+        """自动分配说明（日志可读性）：设备 → 数据 → 参数。"""
+        rec = self._last_rec
+        if rec is None:
+            rec = self._recommended_params()
+            self._last_rec = rec
+        env = self._dev_info
+        lines = []
+        if env is not None and env.has_gpu:
+            lines.append(labels.TRAIN_AUTO_NOTE_GPU.format(
+                name=env.gpu_name, mem=env.gpu_mem_gb))
+        else:
+            lines.append(labels.TRAIN_AUTO_NOTE_CPU)
+        from ml.train import auto_params
+        ds = auto_params.dataset_stats()
+        if ds.train_imgs:
+            lines.append(labels.TRAIN_AUTO_NOTE_DATA.format(
+                n=ds.train_imgs, yep=rec.yolo_epochs, ybatch=rec.yolo_batch))
+        else:
+            lines.append(labels.TRAIN_AUTO_NOTE_EMPTY)
+        lines.append(labels.TRAIN_AUTO_SUMMARY.format(
+            phi=rec.phi, yep=rec.yolo_epochs, ybatch=rec.yolo_batch,
+            cep=rec.cls_epochs, cbatch=rec.cls_batch))
+        return "\n".join(lines)
 
     def _build_placeholder_page(self, title: str, body: str) -> QWidget:
         page = QWidget()
@@ -224,21 +847,23 @@ class DataCenterPage(QWidget):
         self._category_group.setExclusive(True)
         self._active_category = None
         self._category_buttons = {}
-        for cat in _PLACEHOLDER_CATEGORIES:
-            btn = QPushButton(cat)
-            btn.setObjectName("dcChipBtn")
-            btn.setCheckable(True)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(lambda _c=False, name=cat: self._on_category_chosen(name))
-            self._category_group.addButton(btn)
-            self._category_buttons[cat] = btn
-            lay.addWidget(btn)
-        add = QLabel(labels.ANNOT_CATEGORY_ADD)
-        add.setObjectName("dcChipAdd")
-        lay.addWidget(add)
-        lay.addStretch(1)
-        manage = QPushButton(labels.ANNOT_CATEGORY_MANAGE)
+        # 类别芯片统一放入独立容器，便于「新增/删除类别」后整体重建
+        self._chips_box = QFrame(self)
+        self._chips_box.setObjectName("dcChipsBox")
+        self._chips_lay = QHBoxLayout(self._chips_box)
+        self._chips_lay.setContentsMargins(0, 0, 0, 0)
+        self._chips_lay.setSpacing(self._s.DATA_CATEGORY_GAP)
+        lay.addWidget(self._chips_box)
+        self._rebuild_category_chips()
+        add_btn = QPushButton(labels.ANNOT_CATEGORY_ADD)
+        add_btn.setObjectName("dcChipAdd")
+        add_btn.setCursor(Qt.PointingHandCursor)
+        add_btn.clicked.connect(self._on_add_category)
+        lay.addWidget(add_btn)
+        manage = QPushButton(labels.ANNOT_CATEGORY_DELETE)
         manage.setObjectName("dcGhostBtn")
+        manage.setCursor(Qt.PointingHandCursor)
+        manage.clicked.connect(self._on_delete_category)
         lay.addWidget(manage)
         import_btn = QPushButton(labels.ANNOT_IMPORT_BTN)
         import_btn.setObjectName("dcPrimaryBtn")
@@ -250,6 +875,172 @@ class DataCenterPage(QWidget):
         self._active_category = name
         if self._canvas is not None:
             self._canvas.set_active_category(name)
+
+    def _clear_chips(self) -> None:
+        """清空类别芯片容器，并同步按钮组与画布当前类别。"""
+        while self._chips_lay.count():
+            item = self._chips_lay.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+        for btn in self._category_buttons.values():
+            self._category_group.removeButton(btn)
+        self._category_buttons.clear()
+
+    def _rebuild_category_chips(self) -> None:
+        """按注册表当前类别重建类别芯片按钮。"""
+        self._clear_chips()
+        for cat in self._category_names():
+            btn = QPushButton(cat)
+            btn.setObjectName("dcChipBtn")
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda _c=False, name=cat: self._on_category_chosen(name))
+            self._category_group.addButton(btn)
+            self._category_buttons[cat] = btn
+            self._chips_lay.addWidget(btn)
+        # 保持当前选中状态（若类别仍存在）
+        if self._active_category in self._category_buttons:
+            self._category_buttons[self._active_category].setChecked(True)
+            if self._canvas is not None:
+                self._canvas.set_active_category(self._active_category)
+        elif not self._category_buttons:
+            self._active_category = None
+        elif self._category_buttons:
+            # 之前选中的类别已被删除：切回第一个类别
+            first = next(iter(self._category_buttons))
+            self._on_category_chosen(first)
+            self._category_buttons[first].setChecked(True)
+        # 类别集合变化后同步画布（新增/删除类别时重配，保证配色与可用类别一致）
+        if self._canvas is not None:
+            self._configure_canvas(self._canvas)
+
+    def _set_current_series(self, series: str) -> None:
+        """设置当前图片系列，并刷新类别条 + 画布类别。"""
+        series = series or ""
+        if series == self._current_series:
+            return
+        self._current_series = series
+        self._active_category = None
+        self._rebuild_category_chips()
+
+    def _infer_series_from_entries(self, entries) -> str:
+        """从已有标注的类别名推断所属系列（文件夹结构写不出时的兜底）。
+
+        取若干条带 XML 标注的条目，解析其中的类别名（如 ``A_CLIP_H``），
+        用类别名前缀与注册表已有系列比对，返回第一个命中的系列名；
+        全部无法识别时返回空串（此时类别条保持空，不误显示他系列）。
+        """
+        from ml.annotation_registry import get_registry, infer_series
+
+        reg = get_registry()
+        known = {s.upper() for s in reg.series}
+        _, _, parse_annotation, _, _ = self._lazy_annotation_io()
+        for entry in entries[:20]:
+            if not entry.has_xml:
+                continue
+            try:
+                objs = parse_annotation(entry.xml_path)["objects"]
+            except Exception:
+                continue
+            for o in objs:
+                prefix = infer_series(o["name"]).upper()
+                if prefix in known:
+                    return prefix
+        return ""
+
+    def _on_add_category(self) -> None:
+        """「新增类别」：输入名称 + 类型 + 是否带亮灭，写回注册表后重建芯片。"""
+        from app.ui.dialogs import confirm_yes_cancel
+
+        from ml.annotation_registry import add_category
+
+        name, ok = QInputDialog.getText(
+            self, labels.ANNOT_CATEGORY_ADD_TITLE,
+            labels.ANNOT_CATEGORY_NAME_PROMPT,
+        )
+        if not ok:
+            return
+        name = (name or "").strip()
+        if not name:
+            QMessageBox.warning(self, labels.ANNOT_CATEGORY_ADD_TITLE,
+                                labels.ANNOT_CATEGORY_NAME_EMPTY)
+            return
+        # 若当前有图片系列，自动给类别名补上系列前缀（保持系列一致）
+        if self._current_series:
+            prefix = self._current_series.upper() + "_"
+            if not name.upper().startswith(prefix):
+                name = prefix + name
+        # 类型选择
+        kind_map = {
+            labels.ANNOT_CATEGORY_KIND_LED: "led",
+            labels.ANNOT_CATEGORY_KIND_AREA: "area",
+        }
+        kind_label, ok = QInputDialog.getItem(
+            self, labels.ANNOT_CATEGORY_ADD_TITLE,
+            labels.ANNOT_CATEGORY_KIND_PROMPT,
+            [labels.ANNOT_CATEGORY_KIND_LED, labels.ANNOT_CATEGORY_KIND_AREA],
+            editable=False,
+        )
+        if not ok:
+            return
+        kind = kind_map[kind_label]
+        # 是否带亮灭（仅 led 类型询问）
+        hl = False
+        if kind == "led":
+            hl = confirm_yes_cancel(
+                self, labels.ANNOT_CATEGORY_ADD_TITLE,
+                labels.ANNOT_CATEGORY_HL_PROMPT,
+                labels.ANNOT_CATEGORY_HL_YES, labels.ANNOT_CATEGORY_HL_NO,
+                icon=QMessageBox.Question, default_yes=True,
+            )
+        try:
+            added = add_category(name, kind, hl)
+        except ValueError as exc:
+            QMessageBox.warning(self, labels.ANNOT_CATEGORY_ADD_TITLE, str(exc))
+            return
+        if not added:
+            QMessageBox.information(self, labels.ANNOT_CATEGORY_ADD_TITLE,
+                                    labels.ANNOT_CATEGORY_ADD_EXISTS.format(name=name))
+            return
+        QMessageBox.information(self, labels.ANNOT_CATEGORY_ADD_TITLE,
+                                labels.ANNOT_CATEGORY_ADD_SUCCESS.format(name=name))
+        self._rebuild_category_chips()
+
+    def _on_delete_category(self) -> None:
+        """「删除类别」：列出当前系列类别，选择后确认删除，删除后重建芯片。"""
+        from app.ui.dialogs import confirm_yes_cancel
+
+        from ml.annotation_registry import get_registry, remove_category
+
+        reg = get_registry()
+        names = reg.category_names_for_series(self._current_series)
+        if not names:
+            QMessageBox.information(self, labels.ANNOT_CATEGORY_DELETE_TITLE,
+                                    labels.ANNOT_CATEGORY_DELETE_EMPTY_HINT)
+            return
+        name, ok = QInputDialog.getItem(
+            self, labels.ANNOT_CATEGORY_DELETE_TITLE,
+            labels.ANNOT_CATEGORY_DELETE_PROMPT,
+            names, editable=False,
+        )
+        if not ok:
+            return
+        if not confirm_yes_cancel(
+                self, labels.ANNOT_CATEGORY_DELETE_TITLE,
+                labels.ANNOT_CATEGORY_REMOVE_CONFIRM.format(name=name),
+                labels.ANNOT_CATEGORY_REMOVE_YES,
+                labels.ANNOT_CANCEL_BTN,
+        ):
+            return
+        if remove_category(name):
+            QMessageBox.information(self, labels.ANNOT_CATEGORY_DELETE_TITLE,
+                                    labels.ANNOT_CATEGORY_REMOVE_SUCCESS.format(name=name))
+        else:
+            QMessageBox.warning(self, labels.ANNOT_CATEGORY_DELETE_TITLE,
+                                labels.ANNOT_CATEGORY_REMOVE_FAILED)
+        self._rebuild_category_chips()
 
     def _build_image_sidebar(self) -> QWidget:
         panel = QFrame()
@@ -447,12 +1238,18 @@ class DataCenterPage(QWidget):
         from ml.annotation_widget import AnnotationCanvas
         return AnnotationCanvas
 
-    def _make_canvas(self):
-        """创建（懒加载）标注画布并注入配置。"""
-        AnnotationCanvas = self._lazy_annotation_widget()
-        canvas = AnnotationCanvas()
+    def _category_names(self):
+        """返回当前图片系列下的类别名（跟随导入图片的系列）。
+
+        未导入图片 / 系列未识别时返回空，避免错误地显示他系列类别。
+        """
+        from ml.annotation_registry import get_registry
+        return get_registry().category_names_for_series(self._current_series)
+
+    def _configure_canvas(self, canvas):
+        """把当前系列的类别与配色注入画布（新增/删除类别或切换系列后重配）。"""
         canvas.configure(
-            categories=list(_PLACEHOLDER_CATEGORIES),
+            categories=self._category_names(),
             palette=DEFAULT_TOKENS.colors.ANNOT_BOX_PALETTE,
             selected_color=DEFAULT_TOKENS.colors.ANNOT_BOX_SELECTED,
             border_w=DEFAULT_TOKENS.sizing.ANNOT_BOX_BORDER_W,
@@ -460,6 +1257,12 @@ class DataCenterPage(QWidget):
             min_size=DEFAULT_TOKENS.sizing.ANNOT_BOX_MIN_SIZE,
             padding=DEFAULT_TOKENS.sizing.ANNOT_PADDING_PX,
         )
+
+    def _make_canvas(self):
+        """创建（懒加载）标注画布并注入配置。"""
+        AnnotationCanvas = self._lazy_annotation_widget()
+        canvas = AnnotationCanvas()
+        self._configure_canvas(canvas)
         canvas.annotations_changed.connect(self._on_annotations_changed)
         canvas.selection_changed.connect(self._on_annotations_changed)
         canvas.navigate_signal.connect(self._navigate_image)
@@ -488,6 +1291,12 @@ class DataCenterPage(QWidget):
             self._canvas_hint.setText(str(exc))
             return
         self._entries = entries
+        # 根据本次图片所属系列刷新类别条与画布类别（空系列则不显示类别）
+        series = entries[0].series if entries else ""
+        if not series:
+            # 文件夹结构推断不出系列时，从已有标注类别名兜底推断
+            series = self._infer_series_from_entries(entries)
+        self._set_current_series(series)
         self._image_list.clear()
         for entry in entries:
             mark = labels.ANNOT_IMAGE_MAPPED_MARK if entry.has_xml else labels.ANNOT_IMAGE_UNMAPPED_MARK

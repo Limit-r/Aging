@@ -1093,6 +1093,25 @@ QLabel#dcChipAdd {{
     font-weight: bold;
     letter-spacing: 1px;
 }}
+QPushButton#dcChipAdd {{
+    background-color: transparent;
+    color: {c.TEXT_SECONDARY};
+    border: 1px dashed {c.BORDER_PRIMARY};
+    border-radius: 12px;
+    padding: 3px 12px;
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+}}
+QPushButton#dcChipAdd:hover {{
+    background-color: {rgba(c.BORDER_PRIMARY, 25)};
+    color: {c.TEXT_NEON_CYAN};
+    border: 1px solid {c.BORDER_HOVER};
+}}
+QPushButton#dcChipAdd:pressed {{
+    background-color: {rgba(c.BORDER_PRIMARY, 40)};
+}}
 QPushButton#dcChipBtn {{
     background-color: {rgba(c.BORDER_PRIMARY, 18)};
     color: {c.TEXT_NEON_CYAN};
@@ -1290,6 +1309,51 @@ QPushButton#dcPrimaryBtn:pressed {{
     color: {c.BG_DEEP};
 }}
 
+/* ---- 训练页 · 高级下拉按钮（视觉与 ghost 一致，避免"白板"）--------- */
+QToolButton#dcGhostBtn {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_BTN_TOP}, stop:1 {c.BG_BTN_BOTTOM});
+    color: {c.TEXT_NEON_CYAN};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: 4px;
+    padding: 6px 14px;
+    font-family: {f.FAMILY_BUTTON};
+    font-size: 9pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+}}
+QToolButton#dcGhostBtn:hover {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_BTN_HOVER_TOP}, stop:1 {c.BG_BTN_HOVER_BOTTOM});
+    border: 1px solid {c.BORDER_HOVER};
+    color: {c.BORDER_HOVER};
+}}
+QToolButton#dcGhostBtn:pressed {{
+    background-color: {c.BG_TITLE_BAR};
+    color: {c.BORDER_PRIMARY};
+}}
+QMenu {{
+    background-color: {c.BG_DEEP};
+    color: {c.TEXT_NEON_CYAN};
+    border: 1px solid {c.BORDER_PRIMARY};
+    padding: 4px;
+}}
+QMenu::item {{
+    padding: 6px 24px;
+    border-radius: 2px;
+}}
+QMenu::item:selected {{
+    background-color: {c.BG_TITLE_BAR};
+    color: {c.BORDER_HOVER};
+}}
+QMenu::separator {{
+    height: 1px;
+    background: {c.BORDER_PRIMARY};
+    margin: 4px 8px;
+}}
+
 /* ---- 历史 / 训练 页占位 ------------------------------------------ */
 QLabel#dcTabPlaceholder {{
     color: {c.TEXT_DIM};
@@ -1305,5 +1369,114 @@ QLabel#dcTabPlaceholderAccent {{
     font-weight: bold;
     letter-spacing: 2px;
     background: transparent;
+}}
+
+/* ---- 训练页 · 概览横幅 -------------------------------------------- */
+QLabel#dcTrainOverview {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    background: transparent;
+    padding: 2px 4px;
+}}
+
+/* ---- 训练页 · 分段卡片 ------------------------------------------- */
+QFrame#dcTrainSection {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_RIGHT_PANEL}, stop:1 {c.BG_DEEP});
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: 4px;
+}}
+QLabel#dcTrainSectionTitle {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_TITLE};
+    font-size: 11pt;
+    font-weight: bold;
+    letter-spacing: 2px;
+    background: transparent;
+    padding: 2px 2px 6px 2px;
+    border-bottom: 1px dashed {rgba(c.BORDER_PRIMARY, 50)};
+}}
+QLabel#dcTrainParamLabel {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: 8pt;
+    background: transparent;
+}}
+
+/* ---- 训练页 · 日志区 -------------------------------------------- */
+QPlainTextEdit#dcTrainLog {{
+    background-color: {c.BG_BASE};
+    color: {c.TEXT_PRIMARY};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: 4px;
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    padding: 6px;
+    selection-background-color: {rgba(c.BORDER_PRIMARY, 40)};
+}}
+QPlainTextEdit#dcTrainLog:disabled {{
+    color: {c.TEXT_DIM};
+}}
+
+/* ---- 训练页 · 状态行 --------------------------------------------- */
+QLabel#dcTrainHint {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: 8pt;
+    font-style: italic;
+    background: transparent;
+}}
+QLabel#dcTrainHint[running="true"] {{
+    color: {c.TEXT_NEON_GREEN};
+    font-style: normal;
+    font-weight: bold;
+}}
+QLabel#dcTrainHint[state="fail"] {{
+    color: {c.TEXT_DANGER};
+    font-style: normal;
+    font-weight: bold;
+}}
+
+/* ---- 训练页 · 状态区（深度优化） ------------------------------------- */
+QFrame#dcTrainStatusSection {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_RIGHT_PANEL}, stop:1 {c.BG_DEEP});
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: 4px;
+}}
+QLabel#dcTrainStatusLabel {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: 8pt;
+    background: transparent;
+}}
+QLabel#dcTrainStageLabel {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    font-weight: bold;
+    background: transparent;
+}}
+QLabel#dcTrainMetricsLabel {{
+    color: {c.TEXT_NEON_GREEN};
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    background: transparent;
+}}
+QProgressBar#dcTrainProgress {{
+    background-color: {c.PROGRESS_TRACK};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: 3px;
+    text-align: center;
+    color: {c.TEXT_PRIMARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: 8pt;
+}}
+QProgressBar#dcTrainProgress::chunk {{
+    background-color: {c.PROGRESS_CHUNK_RUNNING};
+    border-radius: 2px;
 }}
 """
