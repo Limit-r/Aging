@@ -46,7 +46,7 @@ def run_val_set(args, yolo, decodebox, class_names, num_classes, input_shape, de
         font_path=resolve_font(ML_ROOT),
         conf=args.conf, nms=args.nms, iou_match=args.iou_match,
         tag='A 系列 %s集推理' % args.split,
-        base_dir=str(PROJECT_ROOT),
+        base_dir=str(ML_ROOT),
     )
 
 

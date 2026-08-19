@@ -48,6 +48,10 @@ COUNTDOWN_WARNING_THRESHOLD_S = 60            # 剩余 ≤60s 进入 warning 状
 LOG_DIR = "logs"
 LOG_LEVEL = "DEBUG"  # DEBUG / INFO / WARNING / ERROR / CRITICAL
 LOG_STATUS_BAR_TTL_MS = 5000  # 状态栏错误提示持续时间
+TRAIN_STOP_GRACE_MS = 5000   # 停止训练：先 terminate，宽限 N ms 后仍未退出再 kill
+TRAIN_ELAPSED_TICK_MS = 1000 # 训练页运行耗时 / ETA 刷新间隔
+TRAIN_PROGRESS_PCT = 100     # 训练进度条满刻度百分比
+
 # ---- 3D 视图交互反馈 --------------------------------------------------------
 LED_FLASH_MS = 200             # 双击 LED → 详情页的视觉闪烁时长
 PAGE_CHANGED_STATUS_MS = 2000  # 页面切换时状态栏消息持续时长

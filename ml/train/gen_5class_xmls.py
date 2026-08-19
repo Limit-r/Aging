@@ -23,6 +23,7 @@
     datasets/FP/Annotations_5class/  (与原 Annotations 结构相同，仅类别名映射为 5 类)
 """
 import os
+import sys
 import shutil
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -31,15 +32,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ANNOT_DIR = PROJECT_ROOT / 'datasets' / 'FP' / 'Annotations'
 OUTPUT_DIR = PROJECT_ROOT / 'datasets' / 'FP' / 'Annotations_5class'
 
-# 7 类 → 5 类映射 (FP 系列前缀统一为 FP_)
-CLASS_MAP = {
-    'FP_VPL_L': 'FP_VPL',
-    'FP_VPL_H': 'FP_VPL',
-    'FP_CPL_L': 'FP_CPL',
-    'FP_CPL_H': 'FP_CPL',
-    'FP_PWR_H': 'FP_PWR',
-    'FP_PWR_L': 'FP_PWR',
-}
+# 7 类 → 5 类映射：由类别注册表派生（led+hl 类别自动展开 _H/_L→基础名）
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from annotation_registry import get_registry
+
+CLASS_MAP = get_registry().to_yolo_map()
 
 
 def convert_xml(xml_path, out_path):

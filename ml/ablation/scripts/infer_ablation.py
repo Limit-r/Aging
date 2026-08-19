@@ -19,8 +19,8 @@ from pathlib import Path
 
 import torch
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]          # d:\Aging
-ML_ROOT = PROJECT_ROOT / 'ml'                               # 模型/训练代码根
+ML_ROOT = Path(__file__).resolve().parents[2]               # d:\Aging\ml
+PROJECT_ROOT = ML_ROOT.parent                                # d:\Aging
 sys.path.insert(0, str(ML_ROOT))
 
 from utils.det_eval import run_val                              # noqa: E402
@@ -81,6 +81,7 @@ def main():
         yolo, decodebox, class_names, num_classes, input_shape, device,
         conf=args.conf, nms=args.nms, iou_match=args.iou_match,
         tag=f'消融 {args.model_name} {args.split}集',
+        base_dir=str(ML_ROOT),
     )
 
     # 包装实验元信息后落盘 JSON

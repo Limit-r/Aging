@@ -126,6 +126,13 @@ eval_map_out/
 detect/outputs/
 
 # ============================================================
+# 训练模块生成数据（可由 gen_merged_txt.py / prepare_data_merged.py 再生）
+# ============================================================
+ml/datasets/merged/
+ml/classifier/data_merged/
+ml/ablation/outputs/
+
+# ============================================================
 # 生成型训练日志（loss_* 曲线 / tfevents，可再生成）
 # ============================================================
 ml/weights/**/loss_*/
@@ -161,5 +168,8 @@ commit_msg.txt
 /tests/test_manual_dblclick.py
 /tests/test_led_pos.py
 /tests/test_qtest_click.py
+# 根目录临时验证脚本（排查后清理）
+/_onnx_check.py
+/_qprocess_check.py
 # 注：保留 tests/test_phase3_fix4.py / test_e2e_click.py /
 #     test_pick_accuracy.py / test_mvp_compare.py 作为正式回归测试

@@ -36,11 +36,14 @@ SPLIT_DIR = DATASET_DIR
 
 OUTPUT_DIR = PROJECT_ROOT / 'classifier' / 'data'
 
-# 类别映射: 从 7 类标注名到 L/H 标签
-L_CLASSES = {'FP_VPL_L', 'FP_CPL_L', 'FP_PWR_L'}
-H_CLASSES = {'FP_VPL_H', 'FP_PWR_H'}
-# 注意: CPL_H 在原始数据中极少出现，若未来有标注需要添加
-# H_CLASSES = {'FP_VPL_H', 'FP_CPL_H', 'FP_PWR_H'}
+# 类别映射: 从 7 类标注名到 L/H 标签，由类别注册表派生（led+hl 类别自动展开 _H/_L）
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from annotation_registry import get_registry
+
+_registry = get_registry()
+L_CLASSES = _registry.l_classes()
+H_CLASSES = _registry.h_classes()
 
 
 def parse_xml(xml_path):

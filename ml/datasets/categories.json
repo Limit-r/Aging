@@ -1,0 +1,53 @@
+{
+  "series": [
+    "FP",
+    "A"
+  ],
+  "categories": [
+    {
+      "name": "FP_SIG_area",
+      "kind": "area",
+      "hl": false
+    },
+    {
+      "name": "FP_PWR_area",
+      "kind": "area",
+      "hl": false
+    },
+    {
+      "name": "FP_VPL",
+      "kind": "led",
+      "hl": true
+    },
+    {
+      "name": "FP_CPL",
+      "kind": "led",
+      "hl": true
+    },
+    {
+      "name": "FP_PWR",
+      "kind": "led",
+      "hl": true
+    },
+    {
+      "name": "A_area",
+      "kind": "area",
+      "hl": false
+    },
+    {
+      "name": "A_CLIP",
+      "kind": "led",
+      "hl": true
+    },
+    {
+      "name": "A_PROT",
+      "kind": "led",
+      "hl": true
+    },
+    {
+      "name": "A_PWR",
+      "kind": "led",
+      "hl": true
+    }
+  ]
+}

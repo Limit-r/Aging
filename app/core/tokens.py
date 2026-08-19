@@ -314,6 +314,18 @@ class Sizing:
     ANNOT_ZOOM_PCT_DEFAULT: int = 50  # 画布角标初始缩放百分比（占位展示）
     ANNOT_ZOOM_PCT_SCALE: int = 100   # 缩放比例(0~1)→百分比换算系数
 
+    # ---- 数据训练 · 超参数面板（Phase 3）-----------------------------------
+    TRAIN_PARAM_GAP: int = 8          # 参数项间距
+    TRAIN_LOG_MIN_H: int = 260        # 日志区最小高度
+    TRAIN_PROGRESS_H: int = 16        # 训练进度条高度
+    TRAIN_STATUS_GAP: int = 8         # 状态区子项间距
+    TRAIN_STATUS_LABEL_W: int = 620   # 数据集概览标签宽
+    # ---- 训练页：统一卡片内边距（避免各分段松紧不一）---------------------
+    TRAIN_CARD_PAD_X: int = 12        # 卡片左右内边距
+    TRAIN_CARD_PAD_Y: int = 8         # 卡片上下内边距（紧贴标题）
+    TRAIN_RECOMPUTE_W: int = 96       # "重新评估"按钮固定宽
+    TRAIN_MENU_ADV_W: int = 92        # 高级（分步）下拉按钮固定宽
+
 
 @dataclass(frozen=True)
 class DesignTokens:

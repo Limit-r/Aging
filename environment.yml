@@ -9,3 +9,4 @@ dependencies:
       - pyqtgraph==0.14.0
       - PyOpenGL==3.1.10
       - PyOpenGL_accelerate==3.1.10
+      - onnx  # 训练时 torch.onnx.export 导出 .onnx 所需

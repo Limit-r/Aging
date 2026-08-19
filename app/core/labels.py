@@ -282,7 +282,26 @@ DATA_HISTORY_PLACEHOLDER = (
 # 数据标注页
 ANNOT_CATEGORY_LABEL = "类别"
 ANNOT_CATEGORY_ADD = "+ 新增类别"
-ANNOT_CATEGORY_MANAGE = "类别管理"
+ANNOT_CATEGORY_DELETE = "删除类别"
+ANNOT_CATEGORY_DELETE_TITLE = "删除类别"
+ANNOT_CATEGORY_DELETE_PROMPT = "选择要删除的类别（仅显示当前系列）"
+ANNOT_CATEGORY_DELETE_EMPTY_HINT = "当前系列暂无类别，可先在顶部「+ 新增类别」"
+ANNOT_CATEGORY_ADD_TITLE = "新增类别"
+ANNOT_CATEGORY_ADD_SUCCESS = "已新增类别：{name}"
+ANNOT_CATEGORY_ADD_EXISTS = "类别已存在：{name}"
+ANNOT_CATEGORY_NAME_PROMPT = "输入新的类别名（如 FP_VPL，不带 _H/_L 后缀）"
+ANNOT_CATEGORY_NAME_EMPTY = "类别名不能为空"
+ANNOT_CATEGORY_KIND_PROMPT = "选择类别类型"
+ANNOT_CATEGORY_KIND_AREA = "区域大框（area）"
+ANNOT_CATEGORY_KIND_LED = "LED 点（led）"
+ANNOT_CATEGORY_HL_PROMPT = "该类别是否带亮/灭（H/L）属性？"
+ANNOT_CATEGORY_HL_YES = "是，带亮灭"
+ANNOT_CATEGORY_HL_NO = "否，仅位置"
+ANNOT_CATEGORY_REMOVE_CONFIRM = "确定删除类别「{name}」吗？"
+ANNOT_CATEGORY_REMOVE_YES = "确定删除"
+ANNOT_CATEGORY_REMOVE_SUCCESS = "已删除类别：{name}"
+ANNOT_CATEGORY_REMOVE_FAILED = "删除类别失败（不存在或已在使用）"
+ANNOT_CATEGORY_KIND_ORDER = ["area", "led"]
 ANNOT_IMAGE_LIST_TITLE = "图片列表"
 ANNOT_PREV_BTN = "上一张"
 ANNOT_NEXT_BTN = "下一张"
@@ -339,7 +358,66 @@ ANNOT_UNSAVED_SAVE = "保存并切换"
 ANNOT_UNSAVED_DISCARD = "放弃改动并切换"
 ANNOT_UNSAVED_CANCEL = "取消"
 
-# 训练 / 转换 页（后续实现）
-DATA_TRAIN_PLACEHOLDER = (
-    "一键转换（gen_5class / prepare_data / gen_fp_txt）与子进程训练将在后续阶段实现"
-)
+# 训练 / 转换 页（Phase 3）
+TRAIN_SECTION_CONVERT = "数据集转换"
+TRAIN_SECTION_PARAMS = "模型超参数"
+TRAIN_SECTION_LOG = "训练日志"
+TRAIN_TAB_OVERVIEW = "统一 9 类模型（FP + A 合并）· YOLOv8 检测 + TinyConv 亮灭分类"
+TRAIN_BTN_GENDATA = "① 生成统一标注"
+TRAIN_BTN_TRAIN_YOLO = "② 训练检测模型"
+TRAIN_BTN_MERGE_ROI = "③ 合并亮灭数据"
+TRAIN_BTN_TRAIN_CLS = "④ 训练分类器"
+TRAIN_BTN_ONECLICK = "▶ 一键完整流程"
+TRAIN_BTN_STOP = "■ 停止"
+TRAIN_BTN_ADVANCED = "高级·单步 ▼"
+TRAIN_HINT_RUNNING = "任务运行中，请勿重复启动…"
+TRAIN_HINT_IDLE = "点击按钮启动子进程训练，日志实时回显"
+TRAIN_HINT_STOPPED = "已被手动停止"
+TRAIN_HINT_STOPPING = "正在停止…"
+TRAIN_DONE = "✅ 流程完成（耗时 {sec}s）"
+TRAIN_FAILED = "❌ 流程失败：{reason}"
+TRAIN_STARTING = "── 开始运行：{cmd} ──"
+TRAIN_RUNNING = "训练模块"
+
+# ---- 训练页 · 状态 / 进度区（深度优化） --------------------------------------
+TRAIN_SECTION_STATUS = "训练状态"
+TRAIN_STAGE_IDLE = "空闲"
+TRAIN_STAGE_NAMES = {
+    "DATA": "生成统一标注",
+    "YOLO": "训练检测模型",
+    "ROI": "合并亮灭数据",
+    "CLS": "训练分类器",
+}
+TRAIN_STATUS_STAGE = "阶段：{stage}"
+TRAIN_STATUS_BUSY = "运行中… {elapsed}"
+TRAIN_STATUS_ETA_IDLE = "待命"
+TRAIN_STATUS_EPOCH = "第 {cur}/{total} 轮 · 已用 {elapsed} · 剩余 {eta}"
+TRAIN_METRICS_EMPTY = "指标：--"
+TRAIN_METRICS = "指标：mAP {m} · P {p} · R {r} · F1 {f}"
+TRAIN_STAGE_DONE_TEMPLATE = "✅ 阶段「{stage}」完成，耗时 {sec}s"
+TRAIN_STAGE_FAILED = "❌ 阶段「{stage}」失败"
+
+# ---- 训练页 · 数据集概览 / 环境检测（深度优化） -------------------------------
+TRAIN_STOP_CONFIRM_TITLE = "确认停止"
+TRAIN_STOP_CONFIRM_MSG = "确定要停止当前训练任务吗？已保存的 checkpoint 不会丢失。"
+TRAIN_LOG_FILE_OPENED = "训练日志已写入：{path}"
+TRAIN_DATASET_LABEL = "数据集"
+TRAIN_DATASET_EMPTY = "尚未生成数据，请先运行「① 生成统一标注」"
+TRAIN_DATASET_TEMPLATE = "train {tr} / val {va} / test {te} · 框 {boxes}"
+TRAIN_BTN_REFRESH = "刷新概览"
+TRAIN_DEVICE_LABEL = "设备"
+TRAIN_DEVICE_EMPTY = "未检测，点击「检测环境」"
+TRAIN_DEVICE_PROBING = "检测中…"
+TRAIN_DEVICE_TEMPLATE = "{avail} · {name} ×{count} · 显存 {mem}G"
+TRAIN_DEVICE_CPU = "CPU（未检测到 GPU）"
+TRAIN_BTN_DEVICE = "检测环境"
+
+# ---- 训练页 · 自动分配参数（深度优化 Phase 4） --------------------------------
+TRAIN_BTN_RECOMPUTE = "重新评估"
+TRAIN_AUTO_PROBING = "正在检测环境与数据集…"
+TRAIN_AUTO_WAIT = "点击「开始」或「重新评估」，自动检测电脑配置与数据集规模并分配参数"
+TRAIN_AUTO_SUMMARY = "模型 {phi} · 检测轮次 {yep} · 检测批次 {ybatch} · 分类轮次 {cep} · 分类批次 {cbatch}"
+TRAIN_AUTO_NOTE_GPU = "检测到 GPU：{name}（{mem}G 显存）"
+TRAIN_AUTO_NOTE_CPU = "未检测到 GPU，使用 CPU 训练（参数已调小）"
+TRAIN_AUTO_NOTE_DATA = "训练集 {n} 图 → 检测轮次 {yep}、批次 {ybatch}"
+TRAIN_AUTO_NOTE_EMPTY = "训练集尚未生成，按默认参数启动"
