@@ -2,8 +2,8 @@
 """
 YOLO 推理评估公共函数模块
 
-被 detect/infer_fp.py, detect/infer_a.py, ml/ablation/scripts/infer_ablation.py
-复用, 消除三处 ~99% 重复的 load_model / parse_val_line / iou_xyxy /
+被 detect/infer_fp.py, detect/infer_a.py 复用, 消除多处重复的
+load_model / parse_val_line / iou_xyxy /
 detect_one / draw_boxes / run_val 逻辑。
 
 用法 (在 cwd=项目根、且 sys.path 含 ml/ 的环境下):

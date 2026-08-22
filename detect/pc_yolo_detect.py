@@ -239,7 +239,7 @@ def main():
 
     if not os.path.exists(args.weights):
         print('[ERROR] 权重不存在: %s' % args.weights)
-        print('        请先用 ml/train/train_fp.py 完成训练。')
+        print('        请先用 ml/train/train_merged.py 训练并部署到 ml/deploy/。')
         sys.exit(1)
 
     yolo = load_model(args.weights, num_classes, args.phi, input_shape, device)
