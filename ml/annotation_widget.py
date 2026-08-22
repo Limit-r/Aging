@@ -429,17 +429,11 @@ class AnnotationCanvas(QGraphicsView):
             pos = self.mapToScene(event.pos())
             box = self._hit_box(pos)
             if self._mode == _MODE_CREATE:
-                # 画框模式：空白处开始画新框
-                if box is None:
-                    self._drawing = True
-                    self._draw_start = pos
-                    self._draw_item = self._make_draw_item(pos)
-                    self.setDragMode(QGraphicsView.NoDrag)
-                    return
-                # 落在已有框上：切回编辑模式并选中
-                self._select_only(box)
-                self.set_mode(_MODE_EDIT)
-                super().mousePressEvent(event)
+                # 绘制模式：任意位置（含已有框内/重叠处）均开始画新框
+                self._drawing = True
+                self._draw_start = pos
+                self._draw_item = self._make_draw_item(pos)
+                self.setDragMode(QGraphicsView.NoDrag)
                 return
             # 编辑模式
             if box is not None:
@@ -580,8 +574,7 @@ class AnnotationCanvas(QGraphicsView):
                             r.width(), r.height(),
                         )
                         self.annotations_changed.emit()
-                        # 画完自动回到编辑模式，便于立即移动/调整刚画的框
-                        self.set_mode(_MODE_EDIT)
+                        # 保持绘制模式，便于连续标注多个同类框，无需重复选取类别
                 return
             if self._resizing:
                 self._resizing = False

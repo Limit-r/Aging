@@ -49,6 +49,10 @@ _PROJECT_ROOT = os.path.dirname(
 # 标注页类别：Phase A 后改为从类别注册表派生，不再硬编码
 # 见 _category_names()（懒加载，保持启动不 import ml）
 
+# 标注工具模式（与 ml.annotation_widget 的模式值保持一致）
+_ANNOT_MODE_CREATE = "create"
+_ANNOT_MODE_EDIT = "edit"
+
 
 class DataCenterPage(QWidget):
     def __init__(self, parent=None):
@@ -70,6 +74,7 @@ class DataCenterPage(QWidget):
         self._xml_dir = None           # 当前导入的 XML 目录
         self._current_series = ""      # 当前标注图片所属系列（决定显示的类别）
         self._skip_item_change = False  # 未保存提示取消时回退选中，避免递归
+        self._tool_draw_btn = None     # 「绘制」工具按钮（_build_category_bar 中创建）
         # 训练子进程（QProcess，信号驱动异步读日志，不阻塞事件循环）
         self._proc: QProcess = None
         self._pending_cmds = []
@@ -902,6 +907,28 @@ class DataCenterPage(QWidget):
         self._category_group.setExclusive(True)
         self._active_category = None
         self._category_buttons = {}
+        # 工具切换（绘制 / 编辑），互斥；导向画布模式
+        tool_label = QLabel(labels.ANNOT_TOOL_LABEL)
+        tool_label.setObjectName("dcBarLabel")
+        lay.addWidget(tool_label)
+        self._tool_group = QButtonGroup(self)
+        self._tool_group.setExclusive(True)
+        draw_btn = QPushButton(labels.ANNOT_TOOL_DRAW)
+        draw_btn.setObjectName("dcChipBtn")
+        draw_btn.setCheckable(True)
+        draw_btn.setToolTip(labels.ANNOT_TOOL_DRAW_TIP)
+        draw_btn.setChecked(True)
+        draw_btn.clicked.connect(lambda _=False: self._on_tool_chosen(True))
+        edit_btn = QPushButton(labels.ANNOT_TOOL_EDIT)
+        edit_btn.setObjectName("dcChipBtn")
+        edit_btn.setCheckable(True)
+        edit_btn.setToolTip(labels.ANNOT_TOOL_EDIT_TIP)
+        edit_btn.clicked.connect(lambda _=False: self._on_tool_chosen(False))
+        self._tool_group.addButton(draw_btn)
+        self._tool_group.addButton(edit_btn)
+        self._tool_draw_btn = draw_btn
+        lay.addWidget(draw_btn)
+        lay.addWidget(edit_btn)
         # 类别芯片统一放入独立容器，便于「新增/删除类别」后整体重建
         self._chips_box = QFrame(self)
         self._chips_box.setObjectName("dcChipsBox")
@@ -934,6 +961,19 @@ class DataCenterPage(QWidget):
         self._active_category = name
         if self._canvas is not None:
             self._canvas.set_active_category(name)
+        # 选择类别即切换回「绘制」工具，便于立即连续标注
+        if self._tool_draw_btn is not None:
+            self._tool_draw_btn.setChecked(True)
+
+    def _on_tool_chosen(self, is_draw: bool) -> None:
+        """「绘制 / 编辑」工具切换：同步画布模式。"""
+        if self._canvas is None:
+            return
+        mode = _ANNOT_MODE_CREATE if is_draw else _ANNOT_MODE_EDIT
+        self._canvas.set_mode(mode)
+        # 切换到绘制工具时，若有活动类别则确保画布指向它
+        if is_draw and self._active_category:
+            self._canvas.set_active_category(self._active_category)
 
     def _clear_chips(self) -> None:
         """清空类别芯片容器，并同步按钮组与画布当前类别。"""
@@ -1318,12 +1358,16 @@ class DataCenterPage(QWidget):
         return AnnotationCanvas
 
     def _category_names(self):
-        """返回当前图片系列下的类别名（跟随导入图片的系列）。
+        """返回当前图片系列下可标注的类别名（led 类展开为 H/L 亮灭）。
+
+        设计：除 area 区域类外，所有 LED 类在标注时都要带 H/L 属性
+        （如 ``FP_VPL_H`` / ``FP_VPL_L``），让标注阶段即保留亮/灭信息；
+        训练侧 gen_merged_txt 会自动剥掉 H/L 后缀，故无需重复处理。
 
         未导入图片 / 系列未识别时返回空，避免错误地显示他系列类别。
         """
         from ml.annotation_registry import get_registry
-        return get_registry().category_names_for_series(self._current_series)
+        return get_registry().annotation_names_for_series(self._current_series)
 
     def _configure_canvas(self, canvas):
         """把当前系列的类别与配色注入画布（新增/删除类别或切换系列后重配）。"""

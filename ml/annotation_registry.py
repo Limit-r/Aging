@@ -76,6 +76,22 @@ class CategoryRegistry:
         """返回指定系列下的基础类别名（不带 H/L 后缀）列表。"""
         return [c["name"] for c in self.categories_for_series(series)]
 
+    def annotation_names_for_series(self, series: str) -> list:
+        """返回指定系列下的完整标注类别名列表（H/L 展开）。
+
+        区分规则：
+        - ``area`` 类别名不变；
+        - ``led + hl=true`` 展开为 ``<name>_H`` 与 ``<name>_L`` 两个名称。
+        标注界面用此列表即可在标注时直接区分 LED 亮/灭属性。
+        """
+        names = []
+        for c in self.categories_for_series(series):
+            if c["kind"] == "led" and c.get("hl", False):
+                names.extend((c["name"] + "_H", c["name"] + "_L"))
+            else:
+                names.append(c["name"])
+        return names
+
     # -- 派生：VOC 原始标注名（7 类化）-------------------------------------
     def annotation_names(self) -> list:
         """返回标注/读取 XML 时用到的完整类别名集合顺序列表。
