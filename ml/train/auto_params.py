@@ -15,9 +15,12 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import List, Tuple
+
+log = logging.getLogger("ml.train.auto_params")
 
 # ml/ = ML 根（auto_params.py -> ml/train -> ml）
 _ML_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -128,6 +131,45 @@ def dataset_stats() -> DatasetStats:
     ds.val_imgs, _ = _count("val")
     ds.test_imgs, _ = _count("test")
     return ds
+
+
+def validate_for_training(kind: str = "YOLO") -> Tuple[bool, str]:
+    """训练前前置校验：确认数据集已生成且可用于训练。
+
+    供训练页在启动 YOLO / CLS / 一键流程前调用，避免跑空失败。
+
+    kind:
+      "YOLO" -> 要求统一数据 train.txt 存在且含有效框
+      "CLS"  -> 要求统一 train 已有图（分类器复用其框做 ROI 裁剪）
+      "DATA" -> 跳过校验（该阶段正是生成数据）
+
+    返回 (ok, reason)；ok=False 时 reason 为阻断原因（供 UI 直接展示）。
+    """
+    log.debug("validate_for_training 开始: kind=%s", kind)
+
+    ds = dataset_stats()
+    log.debug("数据集统计: train=%d图/%d框, val=%d, test=%d, merged=%s",
+              ds.train_imgs, ds.boxes, ds.val_imgs, ds.test_imgs, _MERGED_DIR)
+    has_train = ds.train_imgs > 0
+
+    if kind == "DATA":
+        log.info("[datacheck] kind=DATA 跳过校验（该阶段正用于生成数据），直接放行")
+        return True, ""
+
+    if not has_train:
+        log.warning("[datacheck] 阻断训练: train.txt 无图片 (kind=%s)", kind)
+        return False, "尚未生成统一数据（train.txt 无图），请先运行「① 生成统一标注」"
+
+    if kind == "YOLO" or kind == "ONECLICK":
+        if ds.boxes <= 0:
+            log.warning("[datacheck] 阻断训练: 有图片但无标注框 (kind=%s, boxes=%d)",
+                        kind, ds.boxes)
+            return False, "统一数据中未检出标注框，请先完成标注后重新生成数据"
+        log.debug("[datacheck] YOLO/ONECLICK 框数校验通过: boxes=%d", ds.boxes)
+
+    log.info("[datacheck] 校验通过: kind=%s, train=%d图/%d框", kind,
+             ds.train_imgs, ds.boxes)
+    return True, ""
 
 
 # ---- 推荐主逻辑 -------------------------------------------------------------

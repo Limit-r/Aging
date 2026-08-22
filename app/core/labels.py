@@ -462,3 +462,13 @@ TRAIN_AUTO_NOTE_GPU = "检测到 GPU：{name}（{mem}G 显存）"
 TRAIN_AUTO_NOTE_CPU = "未检测到 GPU，使用 CPU 训练（参数已调小）"
 TRAIN_AUTO_NOTE_DATA = "训练集 {n} 图 → 检测轮次 {yep}、批次 {ybatch}"
 TRAIN_AUTO_NOTE_EMPTY = "训练集尚未生成，按默认参数启动"
+
+# ---- 训练页 · 数据集前置校验（启动前拦截，防止跑空失败） ----------------------
+TRAIN_PRECHECK_TITLE = "无法启动训练"
+TRAIN_PRECHECK_BLOCKED = "⛔ 训练未启动：{reason}"
+ANNOT_OK_BTN = "知道了"
+
+# ---- 训练页 · 部署后冒烟验证（自动部署后加载模型回测） ------------------------
+TRAIN_SMOKE_START = "🔬 正在对部署产物做冒烟验证（加载 YOLO + 分类器跑图）…"
+TRAIN_SMOKE_OK = "✅ 部署产物冒烟验证通过"
+TRAIN_SMOKE_FAILED = "❌ 部署产物冒烟验证失败（exit={exit}），请检查训练产物"

@@ -365,17 +365,48 @@ class DataCenterPage(QWidget):
         self._train_run(["DATA", "YOLO", "ROI", "CLS"])
 
     def _train_run(self, stages) -> None:
-        """启动一串训练阶段；自动模式下若尚未探测环境，先探测再启动。"""
+        """启动一串训练阶段；自动模式下若尚未探测环境，先探测再启动。
+
+        训练前对首个阶段做数据集前置校验，数据不可用时阻断并提示，避免跑空失败。
+        """
         if self._proc is not None and self._proc.state() != QProcess.NotRunning:
             return
         if self._dev_proc is not None and self._dev_proc.state() != QProcess.NotRunning:
             return  # 环境探测进行中，等待完成回调后自动启动
+        if not self._train_precheck(stages):
+            return
         if self._dev_info is None:
             self._pending_run = list(stages)
             self._set_hint(labels.TRAIN_AUTO_PROBING)
             self._detect_device(self._start_pending_run)
             return
         self._start_run(stages)
+
+    def _train_precheck(self, stages) -> bool:
+        """数据集前置校验：YOLO/CLS/一键需数据可用，DATA 阶段跳过。
+
+        返回 False 时已阻断（弹框 + 写日志），调用方不再启动。
+        """
+        first = stages[0] if stages else ""
+        from ml.train import auto_params
+        kind = "DATA" if first == "DATA" else "CLS" if first == "CLS" \
+            else "ONECLICK" if len(stages) > 1 else "YOLO"
+        ok, reason = auto_params.validate_for_training(kind)
+        if ok:
+            return True
+        self._append_log(labels.TRAIN_PRECHECK_BLOCKED.format(
+            reason=reason), color=DEFAULT_TOKENS.colors.TEXT_DANGER)
+        narrative.event(
+            "train_precheck_blocked", reason=reason, stages=",".join(stages),
+            note="训练前校验未通过，已阻止启动",
+        )
+        box = QMessageBox(self)
+        box.setWindowTitle(labels.TRAIN_PRECHECK_TITLE)
+        box.setText(reason)
+        box.setIcon(QMessageBox.Warning)
+        box.addButton(labels.ANNOT_OK_BTN, QMessageBox.AcceptRole)
+        box.exec_()
+        return False
 
     def _start_pending_run(self) -> None:
         stages = self._pending_run or []
@@ -655,6 +686,7 @@ class DataCenterPage(QWidget):
         if result["ok"]:
             self._append_log(labels.TRAIN_DEPLOY_DONE.format(dir=result["dir"]),
                              color=DEFAULT_TOKENS.colors.TEXT_NEON_GREEN)
+            self._run_deploy_smoke()
         else:
             self._append_log(labels.TRAIN_DEPLOY_FAILED.format(reason=result["error"]),
                              color=DEFAULT_TOKENS.colors.TEXT_DANGER)
@@ -663,6 +695,51 @@ class DataCenterPage(QWidget):
             deploy_dir=result["dir"], files=",".join(result["files"]),
             note="训练完成自动部署新模型",
         )
+
+    def _run_deploy_smoke(self) -> None:
+        """部署后冒烟验证：子进程加载 yolo+分类器跑图，确认产物可用。
+
+        以独立脚本运行（不 import torch 进 GUI 进程），结果回显到训练日志。
+        """
+        from ml.train import training_runner
+        script = os.path.join(training_runner.PROJECT_ROOT,
+                              "train", "deploy_smoke.py")
+        if not os.path.exists(script):
+            return
+        # 复用训练场进程槽，避免新增一套信号处理
+        self._smoke_proc = None
+        self._append_log(labels.TRAIN_SMOKE_START,
+                         color=DEFAULT_TOKENS.colors.TEXT_NEON_CYAN)
+        proc = QProcess(self)
+        proc.setWorkingDirectory(training_runner.PROJECT_ROOT)
+        proc.setProcessChannelMode(QProcess.MergedChannels)
+        penv = QProcessEnvironment.systemEnvironment()
+        penv.insert("PYTHONIOENCODING", "utf-8")
+        penv.insert("PYTHONUNBUFFERED", "1")
+        proc.setProcessEnvironment(penv)
+        proc.readyReadStandardOutput.connect(self._on_smoke_out)
+        proc.finished.connect(self._on_smoke_finished)
+        self._smoke_proc = proc
+        proc.start(sys.executable, [script])
+
+    def _on_smoke_out(self) -> None:
+        if self._smoke_proc is None:
+            return
+        raw = self._smoke_proc.readAllStandardOutput()
+        for ln in bytes(raw).decode("utf-8", errors="replace").splitlines():
+            ln = ln.rstrip("\r")
+            if not ln:
+                continue
+            self._append_log(ln, color=DEFAULT_TOKENS.colors.TEXT_DIM)
+
+    def _on_smoke_finished(self, exit_code: int, exit_status: int) -> None:
+        if int(exit_code) == 0:
+            self._append_log(labels.TRAIN_SMOKE_OK,
+                             color=DEFAULT_TOKENS.colors.TEXT_NEON_GREEN)
+        else:
+            self._append_log(labels.TRAIN_SMOKE_FAILED.format(exit=int(exit_code)),
+                             color=DEFAULT_TOKENS.colors.TEXT_DANGER)
+        self._smoke_proc = None
 
     def _on_run_finished(self) -> None:
         # 停止耗时刷新、关闭日志文件、复位状态区
