@@ -169,11 +169,12 @@ static const uint8_t ADC_PIN_U2 = 32;   // ADC1_CH4（U2 侧）
 // =========================================================================
 
 // ---------- ★★★ 你只需要改这里两个宏 + 窗口边界 ★★★ ----------
-// 【当前硬件状态：10k 被短路 → 无分压，GPIO33≈COM 原始电压】
-//   0A 实测 ≈2215mV（2209~2220 波动中心）；两点斜率实测 49.4mV/A（0A@2209mV, 15A@2950mV）
-// 【★修复 10k 短路后必须重新标定：预期 0A≈800mV 左右、斜率≈16~17mV/A（两点法重测）】
-static const int32_t  ACS712_ZERO_PIN_MV     = 2215;  // 【步骤1：改这里！0A时实测GPIO引脚电压(mV)】
-static const int32_t  ACS712_SENS_PIN_MV_PER_A_X10 = 494; // 【步骤2：改这里！灵敏度(mV/A)×10】
+// 【当前硬件状态：ACS712 为 40A 版(灵敏度=50mV/A) → 4067 直通 → 1:2 分压(取2/3) → ESP32】
+//   0A 实测 GPIO 引脚 ≈1510mV（约1505~1560 波动中心；对应 ACS712 实际 VCC≈4.5V、零点≈2.27V）
+//   引脚侧灵敏度 = 芯片 50mV/A × 2/3 ≈ 33.3mV/A → ×10 = 333（★两点法可再精校）
+//   ★注意：旧注释误按 30A版(66mV/A)或 1:3 分压推导，均已按真实 40A 版 + 2/3 分压更正。
+static const int32_t  ACS712_ZERO_PIN_MV     = 1510;  // 【步骤1：改这里！0A时实测GPIO引脚电压(mV)】
+static const int32_t  ACS712_SENS_PIN_MV_PER_A_X10 = 333; // 【步骤2：改这里！灵敏度(mV/A)×10】
 // 0A 窗口：ZERO_PIN_MV ±40mV （按需自己调整）
 static const int32_t  ACS712_ZERO_WIN_PIN_LO_MV = ACS712_ZERO_PIN_MV - 40;
 static const int32_t  ACS712_ZERO_WIN_PIN_HI_MV = ACS712_ZERO_PIN_MV + 40;

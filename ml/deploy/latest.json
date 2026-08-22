@@ -1,0 +1,17 @@
+{
+  "ts": "2026-08-22 08:40:18",
+  "source_dir": "d:\\Aging\\ml\\weights\\MERGED",
+  "files": [
+    "yolo_best_deploy.pt",
+    "yolo_best_epoch_weights.pth",
+    "tinyconv_best.pth",
+    "label_merged.txt"
+  ],
+  "paths": {
+    "model": "d:\\Aging\\ml\\deploy\\yolo_best_deploy.pt",
+    "weights": "d:\\Aging\\ml\\deploy\\yolo_best_epoch_weights.pth",
+    "classifier": "d:\\Aging\\ml\\deploy\\tinyconv_best.pth",
+    "labels": "d:\\Aging\\ml\\deploy\\label_merged.txt",
+    "manifest": "d:\\Aging\\ml\\deploy\\latest.json"
+  }
+}

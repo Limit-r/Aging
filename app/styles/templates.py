@@ -498,6 +498,20 @@ QStatusBar {{
 QStatusBar::item {{
     border: none;
 }}
+QLabel#dcAlertLabel {{
+    color: {c.TEXT_SECONDARY};
+    padding-left: 10px;
+}}
+QLabel#dcAlertLabel[alert="warn"] {{
+    color: {c.PROGRESS_CHUNK_WARNING};
+}}
+QLabel#dcAlertLabel[alert="error"] {{
+    color: {c.TEXT_DANGER_LIGHT};
+}}
+QLabel#dcAlertLabel[alert="critical"] {{
+    color: {c.TEXT_DANGER_LIGHT};
+    font-weight: bold;
+}}
 """
 
 

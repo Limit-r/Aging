@@ -15,18 +15,18 @@ import os
 import re
 import sys
 
-from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QThread, QTimer, pyqtSignal
+from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QThread, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QColor, QTextCharFormat, QTextCursor
 from PyQt5.QtWidgets import (
-    QButtonGroup, QFileDialog, QFrame,
-    QHBoxLayout,
-    QInputDialog, QLabel, QListWidget,
+    QButtonGroup, QComboBox, QDialog, QFileDialog, QFrame,
+    QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
-    QSplitter, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
+    QSpinBox, QSplitter, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
 from app.core import config, labels
 from app.core.tokens import DEFAULT_TOKENS
+from app.observability import narrative
 
 # 训练页 · 运行期正则（进度 / 指标解析，见 _parse_train_output）
 _RE_YOLO_EPOCH = re.compile(r"Epoch:(\d+)/(\d+)")
@@ -58,6 +58,7 @@ class DataCenterPage(QWidget):
         self._tab_group: QButtonGroup
         # 懒加载导入的图片条目（ImageEntry 列表），由 _lazy_annotation_io() 提供类型
         self._entries = []
+        self._all_entries = []         # 未筛选的完整图片列表（筛选用主列表）
         # 标注页需要但不随 UI 构建期初始化的引用
         self._image_list: QListWidget
         self._object_list: QListWidget
@@ -385,6 +386,12 @@ class DataCenterPage(QWidget):
         self._train_ts0 = self._time_now()
         self._stop_requested = False
         self._open_train_log()
+        narrative.event(
+            "train_run_start",
+            stages=",".join(stages),
+            log_file=self._train_log_path or "none",
+            note="训练流程启动（自动参数已分配）",
+        )
 
         if self._pending_cmds:
             self._train_oneclick.setEnabled(False)
@@ -434,6 +441,11 @@ class DataCenterPage(QWidget):
         cmd = build_cmd(stage, params)
         self._append_log(labels.TRAIN_STARTING.format(cmd=" ".join(map(str, cmd))),
                          color=DEFAULT_TOKENS.colors.TEXT_NEON_CYAN)
+        narrative.event(
+            "train_stage_start", stage=stage,
+            cmd=" ".join(map(str, cmd)),
+            note="开始执行训练阶段",
+        )
 
         proc = QProcess(self)
         proc.setWorkingDirectory(training_runner.PROJECT_ROOT)
@@ -549,6 +561,10 @@ class DataCenterPage(QWidget):
             path = os.path.join(_PROJECT_ROOT, config.LOG_DIR, "train_%s.log" % ts)
             self._train_log_path = path
             self._train_log_fh = open(path, "w", encoding="utf-8")
+            narrative.event(
+                "train_log_open", path=path,
+                note="本轮训练日志文件已创建",
+            )
             self._append_log(labels.TRAIN_LOG_FILE_OPENED.format(path=path),
                              color=DEFAULT_TOKENS.colors.TEXT_DIM)
         except OSError:
@@ -558,7 +574,8 @@ class DataCenterPage(QWidget):
     def _train_log_write(self, text: str) -> None:
         if self._train_log_fh is not None:
             try:
-                self._train_log_fh.write(str(text) + "\n")
+                ts = datetime.datetime.now().strftime("%H:%M:%S")
+                self._train_log_fh.write("[%s] %s\n" % (ts, str(text)))
                 self._train_log_fh.flush()
             except OSError:
                 pass
@@ -583,6 +600,10 @@ class DataCenterPage(QWidget):
             self._append_log(labels.TRAIN_STAGE_FAILED.format(
                 stage=labels.TRAIN_STAGE_NAMES.get(stage, stage)),
                 color=DEFAULT_TOKENS.colors.TEXT_DANGER)
+            narrative.event(
+                "train_stage_failed", stage=stage, exit=rc,
+                note="训练阶段失败（非零退出码）",
+            )
             self._set_hint(labels.TRAIN_FAILED.format(reason="exit=%d" % rc), fail=True)
             self._on_run_finished()
             return
@@ -593,6 +614,10 @@ class DataCenterPage(QWidget):
             self._append_log(labels.TRAIN_STAGE_DONE_TEMPLATE.format(
                 stage=labels.TRAIN_STAGE_NAMES.get(stage, stage), sec=sec),
                 color=DEFAULT_TOKENS.colors.TEXT_NEON_GREEN)
+            narrative.event(
+                "train_stage_done", stage=stage, sec=sec,
+                note="训练阶段完成",
+            )
         if self._pending_cmds:
             self._spawn_next_cmd()
         else:
@@ -606,8 +631,33 @@ class DataCenterPage(QWidget):
     def _on_all_done(self) -> None:
         el = self._time_now() - self._train_ts0
         self._append_log(labels.TRAIN_DONE.format(sec=int(el)))
+        narrative.event(
+            "train_run_done", sec=int(el),
+            note="全部训练阶段完成",
+        )
+        self._auto_deploy()
         self._set_hint(labels.TRAIN_HINT_IDLE)
         self._on_run_finished()
+
+    def _auto_deploy(self) -> None:
+        """训练结束自动部署：把最佳模型复制到集中部署目录 ml/deploy/。"""
+        from ml.train.deploy_models import deploy_latest
+
+        self._append_log(labels.TRAIN_DEPLOY_START,
+                         color=DEFAULT_TOKENS.colors.TEXT_NEON_CYAN)
+        result = deploy_latest(on_log=lambda msg: self._append_log(
+            msg, color=DEFAULT_TOKENS.colors.TEXT_DIM))
+        if result["ok"]:
+            self._append_log(labels.TRAIN_DEPLOY_DONE.format(dir=result["dir"]),
+                             color=DEFAULT_TOKENS.colors.TEXT_NEON_GREEN)
+        else:
+            self._append_log(labels.TRAIN_DEPLOY_FAILED.format(reason=result["error"]),
+                             color=DEFAULT_TOKENS.colors.TEXT_DANGER)
+        narrative.event(
+            "train_deploy", ok=result["ok"],
+            deploy_dir=result["dir"], files=",".join(result["files"]),
+            note="训练完成自动部署新模型",
+        )
 
     def _on_run_finished(self) -> None:
         # 停止耗时刷新、关闭日志文件、复位状态区
@@ -649,6 +699,11 @@ class DataCenterPage(QWidget):
         self._set_hint(labels.TRAIN_HINT_STOPPING)
         self._append_log(labels.TRAIN_HINT_STOPPING,
                          color=DEFAULT_TOKENS.colors.PROGRESS_CHUNK_WARNING)
+        narrative.event(
+            "train_stop_requested",
+            stage=self._train_cur_stage or "none",
+            note="用户确认停止训练",
+        )
         proc.terminate()
         # 宽限期后仍未退出 → 强杀（进程已退出则 no-op）
         QTimer.singleShot(config.TRAIN_STOP_GRACE_MS, lambda: self._force_kill(proc))
@@ -869,6 +924,10 @@ class DataCenterPage(QWidget):
         import_btn.setObjectName("dcPrimaryBtn")
         import_btn.clicked.connect(self._on_import_folder)
         lay.addWidget(import_btn)
+        video_btn = QPushButton(labels.ANNOT_VIDEO_IMPORT_BTN)
+        video_btn.setObjectName("dcPrimaryBtn")
+        video_btn.clicked.connect(self._on_import_video)
+        lay.addWidget(video_btn)
         return bar
 
     def _on_category_chosen(self, name: str) -> None:
@@ -1057,6 +1116,26 @@ class DataCenterPage(QWidget):
         title = QLabel(labels.ANNOT_IMAGE_LIST_TITLE)
         title.setObjectName("dcPanelTitle")
         lay.addWidget(title)
+        # 筛选行：全部 / 已标注 / 未标注
+        filt_row = QHBoxLayout()
+        filt_row.setSpacing(self._s.DATA_SIDEBAR_NAV_GAP)
+        filt_lb = QLabel(labels.ANNOT_FILTER_LABEL)
+        filt_lb.setObjectName("dcPanelTitle")
+        filt_row.addWidget(filt_lb)
+        self._filter_combo = QComboBox()
+        self._filter_combo.setObjectName("dcFilterCombo")
+        self._filter_combo.addItems([
+            labels.ANNOT_FILTER_ALL,
+            labels.ANNOT_FILTER_MAPPED,
+            labels.ANNOT_FILTER_UNMAPPED,
+        ])
+        self._filter_combo.currentIndexChanged.connect(self._on_filter_changed)
+        filt_row.addWidget(self._filter_combo, 1)
+        lay.addLayout(filt_row)
+        self._stats_lb = QLabel(labels.ANNOT_STATS_TEMPLATE.format(
+            total=0, mapped=0, unmapped=0))
+        self._stats_lb.setObjectName("dcStatsLabel")
+        lay.addWidget(self._stats_lb)
         self._image_list = QListWidget()
         self._image_list.setObjectName("dcList")
         self._image_list.currentItemChanged.connect(self._on_current_item_changed)
@@ -1284,32 +1363,81 @@ class DataCenterPage(QWidget):
         )
         if not folder:
             return
+        self._load_entries_from_folder(folder)
+
+    def _load_entries_from_folder(self, folder: str) -> None:
+        """扫描图片文件夹 → 刷新主列表 + 系列类别 + 图片列表（含筛选）。"""
         _, _, _, scan_image_folder, _ = self._lazy_annotation_io()
         try:
             entries = scan_image_folder(folder)
         except FileNotFoundError as exc:
             self._canvas_hint.setText(str(exc))
             return
-        self._entries = entries
+        self._all_entries = entries
         # 根据本次图片所属系列刷新类别条与画布类别（空系列则不显示类别）
         series = entries[0].series if entries else ""
         if not series:
             # 文件夹结构推断不出系列时，从已有标注类别名兜底推断
             series = self._infer_series_from_entries(entries)
         self._set_current_series(series)
+        self._xml_dir = entries[0].xml_dir if entries else None
+        self._refresh_image_list()
+
+    def _on_filter_changed(self) -> None:
+        """筛选下拉变化 → 重刷图片列表。"""
+        self._refresh_image_list()
+
+    def _current_filter(self) -> str:
+        """当前筛选键："all" / "mapped" / "unmapped"。"""
+        idx = self._filter_combo.currentIndex()
+        return ("all", "mapped", "unmapped")[idx]
+
+    def _refresh_image_list(self) -> None:
+        """按筛选重建图片列表，并刷新统计标签。"""
+        all_entries = getattr(self, "_all_entries", None) or []
+        filt = self._current_filter()
+        if filt == "mapped":
+            entries = [e for e in all_entries if e.has_xml]
+        elif filt == "unmapped":
+            entries = [e for e in all_entries if not e.has_xml]
+        else:
+            entries = list(all_entries)
+        self._entries = entries
         self._image_list.clear()
         for entry in entries:
             mark = labels.ANNOT_IMAGE_MAPPED_MARK if entry.has_xml else labels.ANNOT_IMAGE_UNMAPPED_MARK
             item = QListWidgetItem(labels.ANNOT_IMAGE_ENTRY.format(mark=mark, name=entry.image_name))
             item.setData(Qt.UserRole, entry)
             self._image_list.addItem(item)
-        mapped = sum(1 for e in entries if e.has_xml)
-        self._xml_dir = entries[0].xml_dir if entries else None
+        mapped = sum(1 for e in all_entries if e.has_xml)
+        self._stats_lb.setText(labels.ANNOT_STATS_TEMPLATE.format(
+            total=len(all_entries), mapped=mapped,
+            unmapped=len(all_entries) - mapped,
+        ))
         self._canvas_hint.setText(
-            labels.ANNOT_IMPORT_SUMMARY.format(total=len(entries), mapped=mapped),
+            labels.ANNOT_IMPORT_SUMMARY.format(total=len(all_entries), mapped=mapped),
         )
         if entries:
             self._image_list.setCurrentRow(0)
+
+    # -- 导入视频：自动抽帧 → 关联到对应系列 --------------------------------------
+    def _on_import_video(self) -> None:
+        """打开视频导入对话框；抽取完成后自动加载目标系列图片列表。"""
+        dlg = VideoImportDialog(self)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+        result = dlg.result_info
+        if not result:
+            return
+        target_dir = result.get("target_dir")
+        if target_dir and os.path.isdir(target_dir):
+            self._load_entries_from_folder(target_dir)
+        narrative.event(
+            "annot_video_imported", series=result.get("series", ""),
+            saved=result.get("saved", 0),
+            target=target_dir or "none",
+            note="标注页：视频抽帧导入完成",
+        )
 
     # -- 选中图片：加载到画布 + 显示标注框 + 刷新对象列表 --------------------------
     def _on_current_item_changed(self, current, previous) -> None:
@@ -1467,3 +1595,185 @@ class DataCenterPage(QWidget):
             item.setText(labels.ANNOT_IMAGE_ENTRY.format(
                 mark=labels.ANNOT_IMAGE_MAPPED_MARK, name=entry.image_name))
         self._canvas_hint.setText(labels.ANNOT_OBJECTS_SAVED.format(path=xml_path))
+
+
+class _VideoExtractWorker(QThread):
+    """后台抽帧线程：把耗时抽取放到线程里，避免卡住 GUI 对话框。"""
+
+    progress = pyqtSignal(int, int)   # done, total
+    succeeded = pyqtSignal(dict)      # 抽取结果 dict
+    failed = pyqtSignal(str)          # 失败原因
+
+    def __init__(self, video_path: str, series: str, step: int, parent=None):
+        super().__init__(parent)
+        self._video_path = video_path
+        self._series = series
+        self._step = step
+
+    def run(self) -> None:
+        try:
+            from ml import datasets_extract
+            result = datasets_extract.extract_to_series(
+                self._video_path, self._series, self._step,
+                on_progress=lambda d, t: self.progress.emit(d, t),
+            )
+            self.succeeded.emit(result)
+        except Exception as exc:  # noqa: BLE001 顶层兜底，失败原因上抛给 UI
+            self.failed.emit(str(exc))
+
+
+class VideoImportDialog(QDialog):
+    """导入视频 → 按间隔抽帧 → 关联写入对应系列文件夹。
+
+    对话框内选择视频（自动探测分辨率 / fps / 总帧数）、目标系列（A / FP）
+    与抽帧间隔；点击「开始抽取」后由后台线程抽取，实时显示进度，
+    完成后 `exec_()` 返回 Accepted，结果存于 `self.result_info`：
+        {"saved": int, "target_dir": str, "prefix": str, "series": str}
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._s = DEFAULT_TOKENS.sizing
+        self.result_info = None
+        self._worker = None
+        self._video_path = ""
+        self._build_ui()
+
+    # -- UI 构建 -------------------------------------------------------------
+    def _build_ui(self) -> None:
+        self.setWindowTitle(labels.ANNOT_VIDEO_DIALOG_TITLE)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(
+            self._s.VIDEO_DIALOG_MARGIN, self._s.VIDEO_DIALOG_MARGIN,
+            self._s.VIDEO_DIALOG_MARGIN, self._s.VIDEO_DIALOG_MARGIN,
+        )
+        lay.setSpacing(self._s.VIDEO_DIALOG_SPACING)
+
+        # 视频文件行：只读输入框 + 浏览按钮
+        file_row = QHBoxLayout()
+        file_row.setSpacing(self._s.VIDEO_DIALOG_FIELD_GAP)
+        file_lb = QLabel(labels.ANNOT_VIDEO_FILE_LABEL)
+        file_lb.setObjectName("dcPanelTitle")
+        file_row.addWidget(file_lb)
+        self._file_edit = QLineEdit()
+        self._file_edit.setObjectName("dcFilterCombo")
+        self._file_edit.setReadOnly(True)
+        self._file_edit.setPlaceholderText(labels.ANNOT_VIDEO_NO_FILE)
+        file_row.addWidget(self._file_edit, 1)
+        browse_btn = QPushButton(labels.ANNOT_VIDEO_BROWSE)
+        browse_btn.setObjectName("dcGhostBtn")
+        browse_btn.clicked.connect(self._on_browse)
+        file_row.addWidget(browse_btn)
+        lay.addLayout(file_row)
+
+        # 视频信息预览（选择文件后自动探测填充）
+        self._info_lb = QLabel(labels.ANNOT_VIDEO_NO_FILE)
+        self._info_lb.setObjectName("dcTrainHint")
+        lay.addWidget(self._info_lb)
+
+        # 目标系列 + 抽帧间隔
+        opt_row = QHBoxLayout()
+        opt_row.setSpacing(self._s.VIDEO_DIALOG_FIELD_GAP)
+        opt_row.addWidget(self._make_field_label(labels.ANNOT_VIDEO_SERIES_LABEL))
+        self._series_combo = QComboBox()
+        self._series_combo.setObjectName("dcFilterCombo")
+        self._series_combo.addItems([
+            labels.ANNOT_VIDEO_SERIES_A,
+            labels.ANNOT_VIDEO_SERIES_FP,
+        ])
+        opt_row.addWidget(self._series_combo)
+        opt_row.addSpacing(self._s.VIDEO_DIALOG_OPT_GAP)
+        opt_row.addWidget(self._make_field_label(labels.ANNOT_VIDEO_STEP_LABEL))
+        self._step_spin = QSpinBox()
+        self._step_spin.setObjectName("dcFilterCombo")
+        self._step_spin.setRange(
+            self._s.VIDEO_STEP_MIN, self._s.VIDEO_STEP_MAX)
+        self._step_spin.setValue(self._s.VIDEO_STEP_DEFAULT)
+        opt_row.addWidget(self._step_spin, 1)
+        lay.addLayout(opt_row)
+
+        # 进度条（抽取中显示）
+        self._progress = QProgressBar()
+        self._progress.setObjectName("dcTrainProgress")
+        self._progress.setRange(0, self._s.VIDEO_PROGRESS_MAX)
+        self._progress.setValue(0)
+        self._progress.setVisible(False)
+        lay.addWidget(self._progress)
+
+        # 按钮行：开始抽取 / 取消
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        self._start_btn = QPushButton(labels.ANNOT_VIDEO_START)
+        self._start_btn.setObjectName("dcPrimaryBtn")
+        self._start_btn.clicked.connect(self._on_start)
+        btn_row.addWidget(self._start_btn)
+        self._cancel_btn = QPushButton(labels.ANNOT_CANCEL_BTN)
+        self._cancel_btn.setObjectName("dcGhostBtn")
+        self._cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(self._cancel_btn)
+        lay.addLayout(btn_row)
+
+    @staticmethod
+    def _make_field_label(text: str) -> QLabel:
+        lb = QLabel(text)
+        lb.setObjectName("dcPanelTitle")
+        return lb
+
+    # -- 交互 ----------------------------------------------------------------
+    def _on_browse(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, labels.ANNOT_VIDEO_DIALOG_TITLE, "",
+            "Video (*.mp4 *.avi *.mkv *.mov *.flv);;All (*.*)",
+        )
+        if not path:
+            return
+        self._video_path = path
+        self._file_edit.setText(os.path.basename(path))
+        self._probe_info()
+
+    def _probe_info(self) -> None:
+        from ml import datasets_extract
+        try:
+            info = datasets_extract.probe_video(self._video_path)
+        except Exception as exc:  # noqa: BLE001 视频解析失败仅提示，不崩溃
+            self._info_lb.setText(labels.ANNOT_VIDEO_PROBE_FAILED.format(reason=exc))
+            return
+        self._info_lb.setText(labels.ANNOT_VIDEO_INFO_TEMPLATE.format(**info))
+
+    def _on_start(self) -> None:
+        if not self._video_path:
+            self._info_lb.setText(labels.ANNOT_VIDEO_NO_FILE)
+            return
+        step = self._step_spin.value()
+        if step < 1:
+            self._info_lb.setText(labels.ANNOT_VIDEO_EMPTY_STEP)
+            return
+        series = ("A", "FP")[self._series_combo.currentIndex()]
+        self._start_btn.setEnabled(False)
+        self._cancel_btn.setEnabled(False)
+        self._progress.setVisible(True)
+        self._progress.setValue(0)
+        self._info_lb.setText(labels.ANNOT_VIDEO_RUNNING.format(done=0, total=0))
+        self._worker = _VideoExtractWorker(self._video_path, series, step, self)
+        self._worker.progress.connect(self._on_progress)
+        self._worker.succeeded.connect(self._on_succeeded)
+        self._worker.failed.connect(self._on_failed)
+        self._worker.start()
+
+    def _on_progress(self, done: int, total: int) -> None:
+        if total > 0:
+            self._progress.setValue(
+                int(done * self._s.VIDEO_PROGRESS_MAX // total))
+        self._info_lb.setText(labels.ANNOT_VIDEO_RUNNING.format(done=done, total=total))
+
+    def _on_succeeded(self, result: dict) -> None:
+        self.result_info = result
+        self._info_lb.setText(labels.ANNOT_VIDEO_DONE.format(
+            saved=result.get("saved", 0), dir=result.get("target_dir", "")))
+        self.accept()
+
+    def _on_failed(self, reason: str) -> None:
+        self._start_btn.setEnabled(True)
+        self._cancel_btn.setEnabled(True)
+        self._progress.setVisible(False)
+        self._info_lb.setText(labels.ANNOT_VIDEO_PROBE_FAILED.format(reason=reason))

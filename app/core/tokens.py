@@ -299,6 +299,16 @@ class Sizing:
     DATA_FOOTER_BTN_GAP: int = 8       # 底栏按钮间距
     DATA_PLACEHOLDER_GAP: int = 8      # 占位页子项间距
 
+    # ---- 数据标注 · 视频导入对话框 ------------------------------------------
+    VIDEO_DIALOG_MARGIN: int = 16      # 对话框内边距
+    VIDEO_DIALOG_SPACING: int = 12     # 对话框子项间距
+    VIDEO_DIALOG_FIELD_GAP: int = 8    # 行内字段间距
+    VIDEO_DIALOG_OPT_GAP: int = 12     # 系列/间隔两组之间的间距
+    VIDEO_STEP_MIN: int = 1            # 抽帧间隔最小值
+    VIDEO_STEP_MAX: int = 600          # 抽帧间隔最大值
+    VIDEO_STEP_DEFAULT: int = 5        # 抽帧间隔默认值
+    VIDEO_PROGRESS_MAX: int = 100      # 进度条满值
+
     # ---- 数据标注 · 画布交互参数 --------------------------------------------
     ANNOT_BOX_BORDER_W: int = 2       # 标注框描边宽度（正常态）
     ANNOT_BOX_BORDER_W_SEL: int = 3   # 选中框描边宽度

@@ -39,7 +39,7 @@ from pyqtgraph import Vector
 
 from app.core import config, labels
 from app.core.tokens import DEFAULT_TOKENS
-from app.observability import get_logger, narrative
+from app.observability import get_logger, narrative, set_exception_handler, log_message_emitted, LogLevel
 from app.ui.floaters import (
     RightAlertsFloater,
     BottomRightHUDFloater,
@@ -97,6 +97,8 @@ class HomeDashboard(QWidget):
         # 默认计数
         total = config.GRID_ROWS * config.GRID_COLS
         self._bottom_right.set_counts(0, 0, total)
+        # 实时告警缓存（cid -> reason），驱动右上告警浮窗
+        self._alerts: dict[int, str] = {}
         # 浮窗 z-order：保证 3D 在最底层
         self._rack.lower()
         self._rack.stackUnder(self._right)
@@ -337,13 +339,42 @@ class HomeDashboard(QWidget):
     def set_led_from_visual(self, cid: int, visual: str) -> None:
         """CurrentDetectionPage.cell_visual_state 槽。
         visual ∈ {"anomaly", "online", "offline"} → 映射到 LED 状态。
+
+        联动三处：
+        - 3D 机柜 LED（_rack）
+        - 右侧 LED 状态矩阵浮窗（_led_strip）
+        - 右上告警浮窗（_right）：anomaly 加入告警、online/offline 移除
         """
         if visual == "anomaly":
             self._rack.set_led_state(cid, LEDState.ALERT)
+            self._led_strip.set_led_state(cid, "alert")
+            self._push_alert(cid, labels.HUD_ALERT_ANOMALY_REASON)
         elif visual == "online":
             self._rack.set_led_state(cid, LEDState.RUNNING)
+            self._led_strip.set_led_state(cid, "running")
+            self._drop_alert(cid)
         else:
             self._rack.set_led_state(cid, LEDState.OFFLINE)
+            self._led_strip.set_led_state(cid, "offline")
+            self._drop_alert(cid)
+
+    def _push_alert(self, cid: int, reason: str) -> None:
+        """记录并刷新告警浮窗（同 cid 覆盖 reason，避免重复堆叠）。"""
+        if self._alerts.get(cid) != reason:
+            self._alerts[cid] = reason
+            self._refresh_alerts()
+
+    def _drop_alert(self, cid: int) -> None:
+        """恢复正常 → 移除该通道告警并刷新浮窗。"""
+        if cid in self._alerts:
+            del self._alerts[cid]
+            self._refresh_alerts()
+
+    def _refresh_alerts(self) -> None:
+        """按 cid 排序推送最近告警（浮窗内部取最近 3 条）。"""
+        self._right.set_alerts(
+            sorted((cid, reason) for cid, reason in self._alerts.items())
+        )
 
 
 class HomePage(QMainWindow):
@@ -402,6 +433,13 @@ class HomePage(QMainWindow):
                 selected=labels.SELECTION_BAR_NONE,
             )
         )
+        # G2：接通 Qt 日志信号 + 全局异常 → 状态栏右侧常驻告警标签
+        self._alert_lb = QLabel("")
+        self._alert_lb.setObjectName("dcAlertLabel")
+        self._alert_lb.setProperty("alert", "none")  # noqa: hardcode  QSS tag 初始态
+        self._status_bar.addPermanentWidget(self._alert_lb)
+        log_message_emitted().connect(self._on_alert_message)
+        set_exception_handler(self._on_exception)
 
         # 接线
         self._nav.nav_requested.connect(self._on_nav)
@@ -427,6 +465,29 @@ class HomePage(QMainWindow):
             f"● 切换到页面：{key}", config.PAGE_CHANGED_STATUS_MS,
         )
         _log.info("page changed: %s", key)
+
+    # -- 告警显示（G2：Qt 日志信号 / 全局异常 → 状态栏常驻标签） ----------------
+    def _on_alert_message(self, level: int, message: str) -> None:
+        if not message:
+            return
+        if level >= int(LogLevel.CRITICAL):
+            self._apply_alert("critical", labels.ALERT_CRITICAL.format(msg=message))
+        elif level >= int(LogLevel.ERROR):
+            self._apply_alert("error", labels.ALERT_ERROR.format(msg=message))
+        elif level >= int(LogLevel.WARNING):
+            self._apply_alert("warn", labels.ALERT_WARNING.format(msg=message))
+
+    def _on_exception(self, level: str, message: str) -> None:
+        self._apply_alert("critical", labels.ALERT_CRITICAL.format(msg=message))
+
+    def _apply_alert(self, state: str, text: str) -> None:
+        try:
+            self._alert_lb.setProperty("alert", state)
+            self._alert_lb.setText(text)
+            self._alert_lb.style().unpolish(self._alert_lb)
+            self._alert_lb.style().polish(self._alert_lb)
+        except RuntimeError:
+            pass  # 应用退出阶段，控件可能已销毁
 
     # -- 异常告警联动（Phase A.7） ---------------------------------------------
     def _wire_3d_anomaly_link(self) -> None:

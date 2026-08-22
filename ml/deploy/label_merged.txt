@@ -1,0 +1,9 @@
+FP_SIG_area
+FP_PWR_area
+FP_VPL
+FP_CPL
+FP_PWR
+A_area
+A_CLIP
+A_PROT
+A_PWR

@@ -24,16 +24,16 @@ from utils.det_eval import load_model, resolve_font, run_image, run_val  # noqa:
 from utils.utils import get_classes            # noqa: E402
 from utils.utils_bbox import DecodeBox         # noqa: E402
 
-# A 系列权重路径
-A_WEIGHTS = str(ML_ROOT / 'weights' / 'A' / 'best_epoch_weights.pth')
-A_DEPLOY  = str(ML_ROOT / 'weights' / 'A' / 'model_best_precision_deploy.pt')
-A_LABELS  = str(ML_ROOT / 'datasets' / 'A' / 'label.txt')
+# A 系列权重路径（统一从 ml/deploy/ 加载）
+A_WEIGHTS = str(ML_ROOT / 'deploy' / 'yolo_best_epoch_weights.pth')
+A_DEPLOY  = str(ML_ROOT / 'deploy' / 'yolo_best_deploy.pt')
+A_LABELS  = str(ML_ROOT / 'deploy' / 'label_merged.txt')
 A_OUTDIR  = str(PROJECT_ROOT / 'detect' / 'outputs' / 'A')
 A_VAL_TXT = str(ML_ROOT / 'datasets' / 'A' / '2025_val.txt')
 A_TEST_TXT = str(ML_ROOT / 'datasets' / 'A' / '2025_test.txt')
 
 # 权重缺失时附加提示
-TRAIN_HINT = '        请先用 ml/train/train_a.py 完成训练。'
+TRAIN_HINT = '        请先用 ml/train/train_merged.py 训练并部署到 ml/deploy/。'
 
 
 def run_val_set(args, yolo, decodebox, class_names, num_classes, input_shape, device):

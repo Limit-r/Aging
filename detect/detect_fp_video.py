@@ -34,9 +34,12 @@ from utils.utils_bbox import DecodeBox
 from utils.utils import get_classes
 from classifier.infer import LEDClassifier
 
-DEFAULT_WEIGHTS = str(ML_ROOT / 'weights' / 'FP_v3_5classes_v4' / 'best_epoch_weights.pth')
-DEFAULT_LABELS  = str(ML_ROOT / 'datasets' / 'FP' / 'label.txt')
+DEFAULT_WEIGHTS = str(ML_ROOT / 'deploy' / 'yolo_best_deploy.pt')
+DEFAULT_LABELS  = str(ML_ROOT / 'deploy' / 'label_merged.txt')
 DEFAULT_OUTDIR  = str(PROJECT_ROOT / 'detect' / 'outputs')
+
+# 统一 TinyConv 亮灭分类器（ml/deploy/ 部署产物）
+DEFAULT_CLASSIFIER = str(ML_ROOT / 'deploy' / 'tinyconv_best.pth')
 
 # 显示颜色 (BGR) — 根据分类器结果动态生成 FP_VPL_H/FP_VPL_L 等标签
 CLASS_COLORS = {
@@ -509,8 +512,8 @@ def main():
                         help='检测框平滑系数 0~1 (默认0.55, 越小越平滑)')
     parser.add_argument('--no-smooth', action='store_true',
                         help='禁用检测框平滑')
-    parser.add_argument('--classifier-weights', default=None,
-                        help='TinyConv 分类器权重路径 (默认使用 ml/classifier/weights/best_tinyconv.pth)')
+    parser.add_argument('--classifier-weights', default=DEFAULT_CLASSIFIER,
+                        help='TinyConv 分类器权重路径 (默认 ml/deploy/tinyconv_best.pth)')
     args = parser.parse_args()
 
     class_names, num_classes = get_classes(args.labels)
@@ -522,7 +525,7 @@ def main():
 
     if not os.path.exists(args.weights):
         print('[ERROR] 权重不存在: %s' % args.weights)
-        print('        请先用 ml/train/train_fp.py 完成训练。')
+        print('        请先用 ml/train/train_merged.py 训练并部署到 ml/deploy/。')
         sys.exit(1)
     # 相对路径转换为绝对路径
     video_path = args.video

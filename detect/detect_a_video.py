@@ -35,10 +35,10 @@ from utils.utils import get_classes
 
 from classifier.model import TinyConv
 
-# ===== 默认路径 =====
-A_WEIGHTS = str(ML_ROOT / 'weights' / 'A' / 'model_best_precision_deploy.pt')
-A_LABELS  = str(ML_ROOT / 'datasets' / 'A' / 'label_5class.txt')
-A_CLF_WEIGHTS = str(ML_ROOT / 'classifier' / 'weights' / 'best_tinyconv_a.pth')
+# ===== 默认路径（统一从 ml/deploy/ 加载）=====
+A_WEIGHTS = str(ML_ROOT / 'deploy' / 'yolo_best_deploy.pt')
+A_LABELS  = str(ML_ROOT / 'deploy' / 'label_merged.txt')
+A_CLF_WEIGHTS = str(ML_ROOT / 'deploy' / 'tinyconv_best.pth')
 A_OUTDIR  = str(Path(__file__).resolve().parents[1] / 'detect' / 'outputs')
 
 # 显示颜色 (BGR) — 按基础类别

@@ -29,9 +29,9 @@ from utils.det_eval import load_model, resolve_font, run_image, run_val  # noqa:
 from utils.utils import get_classes            # noqa: E402
 from utils.utils_bbox import DecodeBox         # noqa: E402
 
-DEFAULT_WEIGHTS = str(ML_ROOT / 'weights' / 'FP_v3_5classes_v4' / 'best_epoch_weights.pth')
-DEFAULT_DEPLOY  = str(ML_ROOT / 'weights' / 'FP_v3_5classes_v4' / 'model_best_precision_deploy.pt')
-DEFAULT_LABELS  = str(ML_ROOT / 'datasets' / 'FP' / 'label.txt')
+DEFAULT_WEIGHTS = str(ML_ROOT / 'deploy' / 'yolo_best_epoch_weights.pth')
+DEFAULT_DEPLOY  = str(ML_ROOT / 'deploy' / 'yolo_best_deploy.pt')
+DEFAULT_LABELS  = str(ML_ROOT / 'deploy' / 'label_merged.txt')
 DEFAULT_OUTDIR  = str(PROJECT_ROOT / 'detect' / 'outputs' / 'FP_v3_5classes_v4')
 # split -> txt 路径
 SPLIT_FILES = {
@@ -78,7 +78,7 @@ def main():
     weights_path = args.deploy if os.path.exists(args.deploy) else args.weights
     if not os.path.exists(weights_path):
         print('[ERROR] 权重不存在: %s' % weights_path)
-        print('        请先用 ml/train/train_fp.py 完成训练。')
+        print('        请先用 ml/train/train_merged.py 训练并部署到 ml/deploy/。')
         sys.exit(1)
 
     yolo = load_model(weights_path, num_classes, args.phi, input_shape, device)

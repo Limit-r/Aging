@@ -110,4 +110,58 @@ DataCenterPage (app/ui/pages/data_page.py)
 
 ---
 
-*最后更新：2026-08-14 — 方案确认，进入 UI 设计阶段*
+*最后更新：2026-08-22 — 数据中心功能优化 + 主页浮窗联动 + 部署→检测闭环打通*
+
+---
+
+## 6. 本期功能开发（2026-08-22）
+
+### 6.1 数据标注页 · 视频导入抽帧
+- 新增 `ml/datasets_extract.py`：视频探测 + 按间隔抽帧 + 系列关联写入
+  - A 系列 → `datasets/A/JPEGImages/`（aNN 批次前缀，偶数编号）
+  - FP 系列 → `datasets/FP/JPEGImages/`（frame 前缀，连续编号）
+- 标注页新增「⇪ 导入视频」按钮 → `VideoImportDialog`：
+  - 选择视频自动探测分辨率 / fps / 总帧数
+  - 选择目标系列（A / FP）+ 抽帧间隔（默认 5，范围 1~600）
+  - 后台线程抽取（QThread），进度条实时回显
+  - 完成后自动加载目标系列图片列表到标注页
+
+### 6.2 数据标注页 · 筛选 + 统计
+- 图片列表顶部新增筛选下拉：全部 / 已标注 / 未标注
+- 新增统计标签：`共 N · 已标注 M · 未标注 K`
+- 逻辑：保留 `_all_entries` 全量主列表，`_entries` 为筛选后视图
+
+### 6.3 训练 / 转换页 · 一键流程 + 自动部署
+- 一键完整流程：DATA → YOLO → ROI → CLS 串行（点击一次完成）
+- 新增 `ml/train/deploy_models.py`：训练结束自动部署
+  - 复制 `weights/MERGED/model_best_precision_deploy.pt` → `ml/deploy/yolo_best_deploy.pt`
+  - 复制 `weights/MERGED/best_epoch_weights.pth` → `ml/deploy/yolo_best_epoch_weights.pth`
+  - 复制 `classifier/weights/best_tinyconv_merged.pth` → `ml/deploy/tinyconv_best.pth`
+  - 复制 `datasets/merged/label_merged.txt` → `ml/deploy/label_merged.txt`
+  - 生成 `ml/deploy/latest.json` 部署清单（时间 / 来源 / 路径 / 分类器）
+- `_on_all_done()` 训练全部完成后自动触发部署，日志回显
+
+### 6.4 主页 · 浮窗联动优化
+- `HomeDashboard.set_led_from_visual()` 联动三处：
+  - 3D 机柜 LED（已有）
+  - 右侧 LED 状态矩阵浮窗（`_led_strip`，本次接通真实数据）
+  - 右上告警浮窗（`_right`，本次接通真实数据）
+- 告警逻辑：anomaly → 加入告警列表；online / offline → 移除
+
+### 6.5 部署→检测闭环打通（2026-08-22 追加）
+- **统一部署产物**：`ml/deploy/` 现为检测 / 推理程序的唯一模型加载目录
+  - `yolo_best_deploy.pt` 统一 9 类 YOLO（部署格式，含 model key）
+  - `yolo_best_epoch_weights.pth` 最佳 epoch 权重
+  - `tinyconv_best.pth` 统一 TinyConv 亮灭二分类器
+  - `label_merged.txt` 统一 9 类类别表
+- **检测 / 推理程序默认路径改指 `ml/deploy/`**：
+  - `detect/infer_fp.py` → `deploy/yolo_best_deploy.pt` + `deploy/label_merged.txt`
+  - `detect/infer_a.py` → `deploy/yolo_best_deploy.pt` + `deploy/label_merged.txt`
+  - `detect/detect_fp_video.py` → YOLO + `deploy/tinyconv_best.pth`
+  - `detect/detect_a_video.py` → YOLO + `deploy/tinyconv_best.pth`
+  - `detect/pc_yolo_detect.py` → 保留 FP_v2 旧路径（历史 MJPEG 流演示，未纳入统一部署）
+- **端到端已验证**：
+  - 重新部署生成 `tinyconv_best.pth`
+  - `infer_fp.py` 从 `ml/deploy/` 加载 9 类模型，单图检出 10 目标
+  - `infer_a.py` 从 `ml/deploy/` 加载，单图检出 16 目标
+  - `detect_fp_video.py` YOLO + TinyConv 双模型从 `ml/deploy/` 加载，逐帧检测 VPL/CPL 亮灭正常

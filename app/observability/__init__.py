@@ -17,7 +17,9 @@
 """
 
 from app.observability.logger import get_logger, configure_logging
-from app.observability.exception_hook import install_exception_hooks
+from app.observability.exception_hook import (
+    install_exception_hooks, set_exception_handler,
+)
 from app.observability.safe_call import safe_call
 from app.observability.log_signals import (
     log_message_emitted, LogLevel, emit_log_message,
@@ -25,7 +27,7 @@ from app.observability.log_signals import (
 
 __all__ = [
     "get_logger", "configure_logging",
-    "install_exception_hooks",
+    "install_exception_hooks", "set_exception_handler",
     "safe_call",
     "log_message_emitted", "LogLevel", "emit_log_message",
 ]

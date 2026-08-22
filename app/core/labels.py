@@ -34,6 +34,12 @@ CMD_TRIGGERED_TEMPLATE = (
 )
 
 
+# ---- 状态栏 · 告警常驻提示（G2） --------------------------------------------
+ALERT_WARNING = "[!] {msg}"
+ALERT_ERROR = "[ERR] {msg}"
+ALERT_CRITICAL = "[CRIT] {msg}"
+
+
 # ---- 通道状态文字 -----------------------------------------------------------
 STATUS_ONLINE_TEXT = "● ON"
 STATUS_ALERT_TEXT = "● ALERT"
@@ -194,6 +200,7 @@ HUD_SYSTEM_STATS_STOPPED_TEMPLATE = "■  停止 {n} / {total}"
 HUD_ALERTS_TITLE = "实时告警  //  ALERTS"
 HUD_ALERTS_EMPTY = "（无告警）"
 HUD_ALERT_ITEM_TEMPLATE = "⚠ CH-{cid:02d}  ·  {reason}"
+HUD_ALERT_ANOMALY_REASON = "电流异常"
 HUD_SHORTCUTS_TITLE = "快捷操作  //  ACTIONS"
 SHORTCUT_BATCH_START_LABEL = "▶▶  全部开始"
 SHORTCUT_BATCH_START_GLYPH = "▶▶"
@@ -324,6 +331,30 @@ ANNOT_IMAGE_UNMAPPED_MARK = "○  "
 ANNOT_IMAGE_ENTRY = "{mark}{name}"
 ANNOT_OBJECT_ENTRY = "{name}  ({x1},{y1})-({x2},{y2})"
 
+# 视频导入抽帧
+ANNOT_VIDEO_IMPORT_BTN = "⇪ 导入视频"
+ANNOT_VIDEO_DIALOG_TITLE = "导入视频并截取数据集"
+ANNOT_VIDEO_FILE_LABEL = "视频文件"
+ANNOT_VIDEO_BROWSE = "浏览…"
+ANNOT_VIDEO_SERIES_LABEL = "目标系列"
+ANNOT_VIDEO_SERIES_A = "A 系列"
+ANNOT_VIDEO_SERIES_FP = "FP 系列"
+ANNOT_VIDEO_STEP_LABEL = "抽帧间隔（每 N 帧一张）"
+ANNOT_VIDEO_INFO_TEMPLATE = "{name} · {w}×{h} · {fps}fps · {frames} 帧"
+ANNOT_VIDEO_NO_FILE = "未选择视频文件"
+ANNOT_VIDEO_PROBE_FAILED = "无法读取视频：{reason}"
+ANNOT_VIDEO_START = "开始抽取"
+ANNOT_VIDEO_RUNNING = "正在抽取… {done}/{total} 帧"
+ANNOT_VIDEO_DONE = "✅ 已抽取 {saved} 张图片 → {dir}"
+ANNOT_VIDEO_EMPTY_STEP = "抽帧间隔必须 ≥ 1"
+
+# 图片列表筛选 + 统计
+ANNOT_FILTER_LABEL = "筛选"
+ANNOT_FILTER_ALL = "全部"
+ANNOT_FILTER_MAPPED = "已标注"
+ANNOT_FILTER_UNMAPPED = "未标注"
+ANNOT_STATS_TEMPLATE = "共 {total} · 已标注 {mapped} · 未标注 {unmapped}"
+
 # 标注器交互
 ANNOT_CANVAS_EMPTY_HINT = "选择图片后，拖动鼠标绘制标注框"
 ANNOT_CANVAS_NO_CATEGORY = "先在顶部选择标注类别"
@@ -396,6 +427,11 @@ TRAIN_METRICS_EMPTY = "指标：--"
 TRAIN_METRICS = "指标：mAP {m} · P {p} · R {r} · F1 {f}"
 TRAIN_STAGE_DONE_TEMPLATE = "✅ 阶段「{stage}」完成，耗时 {sec}s"
 TRAIN_STAGE_FAILED = "❌ 阶段「{stage}」失败"
+
+# ---- 训练页 · 自动部署（训练结束自动部署新模型到 ml/deploy/） ----------------
+TRAIN_DEPLOY_START = "🚀 训练完成，开始自动部署新模型…"
+TRAIN_DEPLOY_DONE = "✅ 模型已部署 → {dir}"
+TRAIN_DEPLOY_FAILED = "❌ 部署失败：{reason}"
 
 # ---- 训练页 · 数据集概览 / 环境检测（深度优化） -------------------------------
 TRAIN_STOP_CONFIRM_TITLE = "确认停止"
