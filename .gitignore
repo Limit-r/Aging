@@ -132,6 +132,22 @@ ml/datasets/merged/
 ml/classifier/data_merged/
 ml/ablation/outputs/
 
+# 数据集原始图片与标注（位点图片 + 手工标注 XML，留本地并建议独立备份，不入 Git）
+# 仅白名单保留：分集列表 / 类别表 / 包标记
+ml/datasets/A/*
+!ml/datasets/A/2025_*.txt
+!ml/datasets/A/label*.txt
+!ml/datasets/A/__init__.py
+ml/datasets/FP/*
+!ml/datasets/FP/2025_*.txt
+!ml/datasets/FP/fp_51_frames.txt
+!ml/datasets/FP/label.txt
+!ml/datasets/FP/predefined_classes.txt
+!ml/datasets/FP/__init__.py
+# 分类器 ROI 裁剪样本（prepare_data_merged.py 可再生成）
+ml/classifier/data_a/
+ml/datasets/classifier_data/
+
 # ============================================================
 # 生成型训练日志（loss_* 曲线 / tfevents，可再生成）
 # ============================================================
