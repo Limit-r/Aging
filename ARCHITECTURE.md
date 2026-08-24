@@ -32,6 +32,8 @@ d:\Aging\
 ├── Main.py                          # 应用入口（仅 ~30 行，构造 HomePage）
 ├── environment.yml                  # Conda 依赖锁文件
 ├── ARCHITECTURE.md                  # 本文件
+├── docs/
+│   └── video-stream-detection.md    # 视频流检测模块说明（两页 UI + 常驻 worker）
 ├── logs/                            # 运行时日志（loguru rotating）
 │   └── app.log
 ├── .trae/                           # Trae IDE 工作区
