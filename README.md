@@ -54,21 +54,23 @@ python Main.py
 > **重要约定**：`ml/` 下的训练脚本须**以 `ml/` 为工作目录**运行（`config.py` 使用相对路径）；`detect/` 下的检测脚本从仓库根运行即可（内部自动定位 `ml/`）。
 
 ```powershell
-# ---- 训练（在 ml/ 目录下） ----
+# ---- 统一 9 类训练/检测链路 ----
+# 1. 合并 ROI 样本（FP 源在 archive/classifier_data，A 源在 ml/classifier/data_a）
 cd ml
+python classifier\prepare_data_merged.py
 
-# 训练 YOLO（FP 数据集）
-python train\train_fp.py
+# 2. 训练统一 YOLO（9 类）
+python train\train_merged.py
 
-# 训练 TinyConv 二分类器
-python classifier\train.py
+# 3. 训练统一 TinyConv 亮灭二分类
+python classifier\train_merged.py
 
-# 推理评估（val/test，从仓库根运行）
+# 4. 视频 / LED 检测：启动老化检测 GUI（视频流：逐帧 + 闪烁统计）从仓库根
 cd ..
-python detect\infer_fp.py --split val --conf 0.25
+python Main.py
 
-# 单路视频检测
-python detect\detect_fp_video.py --video video\003.mp4 --conf 0.20
+# 5. 实时 ESP32-CAM MJPEG 流检测
+python detect\pc_yolo_detect.py --url http://<esp32cam-ip>/stream
 ```
 
 ## 目录规范

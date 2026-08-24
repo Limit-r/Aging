@@ -28,12 +28,11 @@ ml/
 检测/推理脚本位于仓库根 `detect/`，内部自动定位 `ml/`，从仓库根运行即可。
 
 ```powershell
-cd ml
-python train\train_fp.py          # 训练 YOLO
-python classifier\train.py        # 训练 TinyConv
-cd ..
-python detect\infer_fp.py --split val --conf 0.25
-python detect\detect_fp_video.py --video video\FP00.mp4 --conf 0.20
+# 统一 9 类链路（以 ml/ 为工作目录）
+python classifier\prepare_data_merged.py  # 合并 ROI 样本
+python train\train_merged.py              # 训练统一 YOLO（9 类）
+python classifier\train_merged.py         # 训练统一 TinyConv 亮灭二分类
+# 视频/LED 检测走 GUI：仓库根 `python Main.py`；实时相机 `python detect\pc_yolo_detect.py`
 ```
 
 > 视频抽帧已整合至根目录 `tools/extract_frames.py`（统一支持 A / FP 系列），
