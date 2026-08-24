@@ -46,6 +46,10 @@ import cv2  # noqa: E402
 from engine import DetectionEngine, is_background_class  # noqa: E402
 
 THUMB_WIDTH = 420
+# 闪烁去抖：off→on 计为一次「完整亮暗」所需的最短连续 OFF 帧数。
+# 用于合并单帧检测抖动/微闪，让计数匹配物理闪烁；数值偏大易把快速闪烁
+# 合并掉，偏小则无法抑制抖动，需按视频帧率权衡（默认约 0.2s）。
+FLASH_DEBOUNCE_FRAMES = 8
 PALETTE = [
     (0, 191, 255), (16, 255, 161), (255, 174, 66),
     (167, 139, 250), (255, 59, 92), (0, 229, 255), (255, 255, 255),
@@ -63,11 +67,17 @@ def emit(payload: dict) -> None:
 
 
 class FlashTracker:
-    """按「基础类 + 槽位」分配 LED ID，统计 off→on 翻转次数（累计）。"""
+    """统计「完整亮暗事件」的闪烁次数（累计，off→on，带帧级去抖）。
+
+    逐帧收到每个 LED 的 H/L 状态。为避免单帧检测抖动/微闪把一次物理闪烁
+    数成多次，要求 LED 必须先连续 OFF 达到 `FLASH_DEBOUNCE_FRAMES` 帧，
+    随后的 off→on 才累计一次闪烁。这样一次「完整亮暗」只计一次。
+    """
 
     def __init__(self):
         self.ids: list[str] = []
         self.last: dict[str, str] = {}
+        self.off_buf: dict[str, int] = {}
         self.flashes: dict[str, int] = {}
 
     def update(self, samples: dict[str, str]) -> dict[str, int]:
@@ -75,11 +85,21 @@ class FlashTracker:
             if led_id not in self.ids:
                 self.ids.append(led_id)
                 self.last[led_id] = None
+                self.off_buf[led_id] = 0
                 self.flashes[led_id] = 0
         for led_id, st in samples.items():
             prev = self.last[led_id]
-            if prev == "L" and st == "H":
-                self.flashes[led_id] += 1
+            if prev is None:
+                self.last[led_id] = st
+                continue
+            if st == "H":
+                # 由 off 变 on：需已连续 off 足够帧数才视为一次完整闪烁
+                if prev == "L" and self.off_buf[led_id] >= FLASH_DEBOUNCE_FRAMES:
+                    self.flashes[led_id] += 1
+                # 处于 on（含短暂 off 抖动后的回落）都会重置 off 计数
+                self.off_buf[led_id] = 0
+            else:  # st == "L"
+                self.off_buf[led_id] += 1
             self.last[led_id] = st
         return dict(self.flashes)
 
