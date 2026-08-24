@@ -56,6 +56,12 @@ TRAIN_PROGRESS_PCT = 100     # 训练进度条满刻度百分比
 LED_FLASH_MS = 200             # 双击 LED → 详情页的视觉闪烁时长
 PAGE_CHANGED_STATUS_MS = 2000  # 页面切换时状态栏消息持续时长
 
+# ---- 54 路静默集中监控（monitor）-------------------------------------------
+MONITOR_POLL_MS = 1000         # GUI 轮询 worker 聚合快照间隔
+MONITOR_MAX_VIDEOS = 54        # 一次最多监控路数
+MONITOR_FPS = 4                # 每路静默检测目标帧率
+MONITOR_INPUT_TEXT = "320×320"  # 检测输入分辨率（与 worker MONITOR_INPUT_SHAPE 对齐）
+
 # ---- 通道状态 → 文本颜色映射（用于 inline QSS） -----------------------------
 # 注：这些值在 DataCell 头部状态文字需要 inline setStyleSheet；
 # token 化后从 DEFAULT_TOKENS.colors 取

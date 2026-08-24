@@ -305,6 +305,30 @@ VIDEO_CELL_LABEL_TOOLTIP = "LED 亮灭检测结果（H=亮 / L=灭）"
 VIDEO_IMPORT_DIALOG_TITLE = "选择要导入的视频"
 VIDEO_IMPORT_FILTER = "视频文件 (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.m4v *.mpg *.mpeg *.mts);;所有文件 (*)"
 
+# ---- 54 路静默集中监控（monitor）--------------------------------------------
+MONITOR_CHOOSE_BTN = "选择视频…"
+MONITOR_LOAD_MANIFEST_BTN = "加载清单…"
+MONITOR_MANIFEST_DIALOG_TITLE = "选择监控清单（.txt，每行一个视频绝对/相对路径，行序对应 CH-01…）"
+MONITOR_MANIFEST_FILTER = "监控清单 (*.txt);;所有文件 (*)"
+MONITOR_MANIFEST_LOADED = "已加载 {n} 路监控清单（首路 CH-01，行序即通道）"
+MONITOR_MANIFEST_EMPTY = "清单为空或格式错误"
+MONITOR_MANIFEST_MISSING = "清单中第 {idx} 行视频不存在：{path}"
+MONITOR_START_BTN = "开始静默监控"
+MONITOR_STOP_BTN = "停止监控"
+MONITOR_CHOOSE_DIALOG_TITLE = "选择设备视频（一次最多 {max} 路，按所选顺序对应位点）"
+MONITOR_EMPTY_ERROR = "未选择任何视频"
+MONITOR_TOO_MANY_ERROR = "最多选择 {max} 路视频，当前 {n}"
+MONITOR_RUNNING_HINT = "静默监控运行中（{count} 路 @ {fps} fps，{size}）"
+MONITOR_IDLE_HINT = "选择设备视频后可开始静默集中监控（不预览，后台统计 LED 闪烁）"
+MONITOR_POLLING_ERROR = "静默监控返回错误：{msg}"
+CELL_MONITOR_TEMPLATE = "闪 {n}"
+CELL_MONITOR_LOOP_TEMPLATE = "闪 {n} · 圈 {loops}"
+MONITOR_DONE = "静默监控已完成"
+MONITOR_ABNORMAL_FINISH = "监控线程意外结束（可能异常或运行了旧代码）。循环检测已停止，请完全退出系统后重试，并查看日志。"
+CELL_MONITOR_OPENING = "…"
+CELL_MONITOR_DONE = "✓"
+CELL_MONITOR_ERROR = "✗"
+
 
 # ---- 浮窗层（Phase 4-D）------------------------------------------------------
 # LED 状态矩阵浮窗标题

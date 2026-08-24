@@ -531,11 +531,12 @@ class HomePage(QMainWindow):
         _log.info("home → detail: cid=%d", cid)
 
     # -- 视频流检测页接线 -------------------------------
-    def _on_open_video_stream(self, cid: int) -> None:
-        """视频总览双击位点 → 切到视频流检测页。"""
-        self._video_stream_page.set_channel(cid)
+    def _on_open_video_stream(self, cid: int, video_path=None) -> None:
+        """视频总览双击位点 → 切到视频流检测页；若来自静默监控则带视频路径直启。"""
+        self._video_stream_page.set_channel(cid, video_path)
         self._router.navigate("video_stream")
-        _log.info("video overview → stream: cid=%d", cid)
+        _log.info("video overview → stream: cid=%d path=%s",
+                  cid, bool(video_path))
 
     def _on_video_stream_back(self) -> None:
         """视频流检测页返回 → 回视频总览。"""

@@ -37,8 +37,10 @@ UI 分两级进入：**总览页（只标记位点）→ 双击某位点 → 单
 ┌───────────────────────────────▼───────────────────────────────────────────┐
 │  ml/vision/worker.py  常驻检测服务（独立子进程）                             │
 │   ├─ 启动即预加载 YOLO(9类) + TinyConv(H/L) → ready 事件                   │
-│   └─ 每个 detect 命令起一个独立 job 线程，逐帧检测 → sample/done/error     │
-│       └─ ml/vision/engine.py  DetectionEngine（检测 + 分类）               │
+│   └─ **单一帧批处理调度线程**：把多路流的"到点帧"打包成 batch 一次前向      │
+│       YOLO → 逐流 H/L 分类/闪烁统计 → sample/done/error                    │
+│       └─ ml/vision/engine.py  DetectionEngine（detect / detect_batch /    │
+│                                                  classify）               │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -126,10 +128,10 @@ UI 分两级进入：**总览页（只标记位点）→ 双击某位点 → 单
 
 > 设计说明：闪烁计数是**逐帧**精度并去抖；而折线方波图是**1 秒采样**上报（见 6.3）。因此极端快闪下两者仍可能有细微差异，这是有意的精度取舍。
 
-### 5.3 逐帧检测 + 真实速度节流 `run_job()`
-- **不抽帧**：每帧都 `detect` + `classify`（用共享 `_infer_lock` 串行化推理，保证 torch 线程安全）。
-- **真实速度**：按 `1/fps` 匀速节流推进，一段 16s 视频约用 16s 处理完；推理比实时慢时以实际速度运行（只快不慢）。
-- 图表/统计按 `this_sec != last_sec`（1Hz）上报 `sample`；实时缩略图仍逐帧写，互不阻塞。
+### 5.3 逐帧检测 + 真实速度节流 + 多流批处理（调度器 `_tick`）
+- **不抽帧**：每流每帧都检测；多路流的"到点帧"合成一个 batch 一次性 `detect_batch` 前向 YOLO，再逐流 `classify` + 统计（见 §7 多流并发）。
+- **真实速度**：每流按**自身 `1/fps` 独立节流**（`next_t` 逐帧推进），一段 16s 视频约用 16s 处理完；推理慢于实时时以实际速度运行（只快不慢）。
+- 图表/统计按 `this_sec != last_sec`（1Hz）上报 `sample`；实时缩略图按 `THUMB_FPS≈4` 写盘，互不阻塞。
 
 ---
 
@@ -167,7 +169,58 @@ UI 分两级进入：**总览页（只标记位点）→ 双击某位点 → 单
 
 ---
 
-## 7. 工程约束（本模块必须遵守）
+## 7. 多视频流并发与性能优化
+
+### 7.1 并发模型：帧批处理调度
+worker 不再是"每 job 一个线程 + 全局锁串行推理"，而是**单一调度线程**（`scheduler_loop → _tick`）：
+- 每轮把各活动流的"到点帧"打包成 batch，`detect_batch` 一次前向 YOLO。
+- `decode_box` 是 batch 感知的、一次完成；`non_max_suppression` 对**每路**用其自身 `image_shape` 逐路执行（NMS 内部 image_shape 是单一值，无法跨分辨率 batch 生效）。
+- 每流按自身 `next_t` 独立节流，互不拖慢。
+- H/L 分类跨流聚合：`classify_batch` 把多路 ROI 合成一次 TinyConv 前向，摊薄小 batch 启动开销。
+- **读帧与调度解耦**：每流独立后台读帧线程把 `cap.read()` 预取进有界缓冲（`READ_BUF_SIZE=2`），调度线程取帧不阻塞——为将来 RTSP/网络流准备。
+- 并发上限：`MAX_CONCURRENT_STREAMS`（worker.py，默认 `2`）。到达上限后新的 `detect` 会被拒绝并返回 `error` 事件（"并发检测已达上限…"）。
+
+### 7.2 其它性能优化（已落地）
+- **FP16 autocast**：`detect` / `detect_batch` / `classify` 在 CUDA 下用 `torch.amp.autocast(float16)` 包裹前向，输出递归回 FP32 解码，保 NMS 精度。
+- **批量预处理**：`_preprocess_batch` 在 CPU 上把整批帧构造成一个连续 `[B,3,H,W] uint8` 数组，一次性 `to(device, non_blocking)`，在 GPU 侧 `/255` 归一化——替代逐帧 `cvtColor/resize/.to` 的多份拷贝。
+- **cv2 letterbox**：以 cv2 resize + 灰边填充取代 PIL `Image.new`，省每帧 CPU 开销。
+- **缩略图降频**：`THUMB_FPS≈4`，按帧间隔写盘而非逐帧，降低磁盘 I/O（GUI 300ms 刷新足够）。
+
+### 7.3 实测吞吐与并发上限（RTX 5060 Ti / 8GB / 6核12线程，512×512 输入 FP16）
+| batch(B) | 单轮累耗(ms) | 整批吞吐 | 均到每路 |
+|---|---|---|---|
+| 1 | 11.1 | 90 帧/s | 90 帧/s |
+| 2 | 15.9 | 63 帧/s | **31 帧/s** |
+| 4 | 24.0 | 42 帧/s | 10 帧/s |
+
+- 测的是随机噪声帧（NMS 最坏情况），真实画面目标更少、NMS 更省，实测会更快。
+- **瓶颈是 GPU 计算吞吐，不是显存**：8GB 显存跑 B=4 富余，但均到每路只有 ~10 帧/s，无法维持 30fps 实时。
+- **结论**：默认 `MAX_CONCURRENT_STREAMS=2` 恰能扛 30fps 实时（B=2 → 31帧/s）；B=3 时若视频 ≤25fps 可尝试；B=4 只能跑 ≤10fps 的低帧率视频。
+- 若需更高并发（>3 路 30fps），应从**降低输入分辨率**（512→384/320，需验证 LED 小目标召回）或 **TensorRT/`torch.compile`** 入手，而非单纯放宽并发上限。
+- 显存估算沿用 §7.3 旧表：2 路 `~2–3GB` 舒适，4 路 `~4–6GB` 偏紧。<br>CPU：读帧/预处理随路数并行，建议 ≥8 逻辑核；RAM <2GB/路。
+
+### 7.4 54 路静默集中监控（monitor / silent）
+交互式逐帧检测受单线程后处理限制只适合 ≤4 路 **点来看**。若只是**后台静默监控**（不看画面、看 LED 亮灭/闪烁聚合），可一次跑最多 **54 路**，每路默认 **4fps**：
+
+- **命令协议**（独立于交互 `detect`，与 `snapshot` 轮询配套）：
+  ```
+  {"cmd":"monitor", "fps":4.0, "jobs":[{"job":1,"video":"a.mp4"}, ...]}   # ≤54 路
+  {"cmd":"snapshot"}      # 返回聚合快照
+  {"cmd":"monitor_stop"}
+  ```
+  事件：`monitor_start`（count/fps/input）→ 轮询间 `snapshot`（每路：job/w/h/fps/frame/total/elapsed/flashes/states/status）→ `monitor_finished`。
+- **为何能到 54 路**：测得的瓶颈是**单线程 Python 后处理（NMS 等，占 70%~90%）而非 GPU**。静态监视用
+  - `DetectionEngine(input_shape=(320,320))` 低输入；
+  - `detect_batch_parallel`：一次 GPU batch 前向（`_decode_batch`），NMS 按图丢进 `ThreadPoolExecutor`（`MONITOR_WORKERS≈12`）并行；
+  - 无预览/缩略图/逐帧上报，只在内存聚合。
+- **每路节流**：`period=1/fps` 独立推进；`FLASH_DEBOUNCE_FRAMES` 按实际检测帧率折算（约 0.3s OFF）；`_area` 类除功率灯 `*_PWR_area` 外不纳入统计（与交互一致）。
+- **GUI 集成**：`VideoOverviewPage` 新增"选择视频…/开始静默监控/停止监控"，选 ≤54 视频 → 按所选顺序映射到位点 `CH-01..CH-54`，QTimer（`MONITOR_POLL_MS=1000`）轮询 `snapshot`，在 9×8 网格单元显示 `闪 {n}` / `✓` / `✗` 聚合。
+- **静默+点开看实时**：监控进行中**双击某一正在被监控的位点** → `open_stream_requested(cid, 该路视频路径)` → 实时页 `set_channel(cid, path)` **自动载入并直启** 30fps 逐帧检测（复用现有交互页，无需重新导入）；其余 53 路静默继续后台记录。交互 `detect`（job=cid，写 `cell_{cid}.jpg`）与 `monitor`（独立 `_mon`）互不冲突。
+- **容量**：54 路 × 4fps = 216 帧/s 总检测率；GPU 前向富余 2 个量级，并行后处理可摊平，实测（§7.3）足够。要更高可降 320 → 256 或调 `fps`。
+
+---
+
+## 8. 工程约束（本模块必须遵守）
 
 1. **GUI 进程不 import torch**：`app/ui/*` 只通过 `VisionWorkerManager` 与 worker 进程 JSON 通信；`ml/vision/engine.py` 由 worker 进程引入。
 2. **依赖方向**：所有检测/模型逻辑在 `ml/`；`app/ui` 只编排调用。
@@ -178,7 +231,7 @@ UI 分两级进入：**总览页（只标记位点）→ 双击某位点 → 单
 
 ---
 
-## 8. 验证方式
+## 9. 验证方式
 
 ```powershell
 # 1) 语法编译（worker 属 ml/，单独编译）
@@ -195,15 +248,15 @@ UI 分两级进入：**总览页（只标记位点）→ 双击某位点 → 单
 
 ---
 
-## 9. 文件清单
+## 10. 文件清单
 
 | 文件 | 角色 |
 |---|---|
-| `app/ui/pages/video_page.py` | 视频检测·总览页（位点标记网格 + 双击路由） |
+| `app/ui/pages/video_page.py` | 视频检测·总览页（位点标记网格 + 双击路由 + 54 路静默监控选择/启动/轮询聚合） |
 | `app/ui/pages/video_stream_page.py` | 单通道视频流检测页 + `VsResultPanel` 结果面板 |
 | `app/ui/vision_worker.py` | 全局单例 worker 编排（QProcess 启动/收发/关闭） |
-| `ml/vision/worker.py` | 常驻检测服务（预加载模型 + 逐帧 job + 去抖闪烁统计） |
-| `ml/vision/engine.py` | 统一检测引擎（YOLO 检测 + TinyConv H/L 分类 + 背景判定） |
+| `ml/vision/worker.py` | 常驻检测服务（帧批处理调度器 + 去抖闪烁统计 + 多流并发上限 + 54 路静默集中监控 monitor/snapshot） |
+| `ml/vision/engine.py` | 统一检测引擎（YOLO `detect`/`detect_batch`/`detect_batch_parallel` + TinyConv H/L 分类 + 背景判定 + FP16 + 批量预处理） |
 | `ml/deploy/` | 统一部署产物：`yolo_best_deploy.pt` / `tinyconv_best.pth` / `label_merged.txt` |
 | `app/core/tokens.py` | `VIDEO_*` 尺寸/颜色 DesignTokens |
 | `app/core/labels.py` | `VIDEO_*` 用户可见文案 |

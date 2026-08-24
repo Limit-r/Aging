@@ -8,16 +8,19 @@
 """
 from __future__ import annotations
 
+import os
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
+    QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
+    QVBoxLayout, QWidget,
 )
 
 from app.core import config, labels
 from app.core.tokens import DEFAULT_TOKENS
 from app.observability import get_logger, narrative
+from app.ui.vision_worker import get_vision_worker
 
 _S = DEFAULT_TOKENS.sizing
 _log = get_logger("app.ui.pages.video_page")
@@ -52,6 +55,8 @@ class VideoMarkCell(QFrame):
         mark = QLabel(labels.CELL_MARK_TEMPLATE.format(cid=self.cell_id))
         mark.setObjectName("videoCellMark")
         mark.setAlignment(Qt.AlignCenter)
+        self._mark = mark
+        self._mark_original = mark.text()
         outer.addWidget(mark, 1)
 
         hint = QLabel(labels.CELL_OPEN_HINT)
@@ -66,20 +71,197 @@ class VideoMarkCell(QFrame):
             return
         super().mouseDoubleClickEvent(event)
 
+    # ------------------------------------------------------------ 静默监控
+    def set_monitor(self, text: str) -> None:
+        """静默监控时在单元中显示聚合信息（覆盖默认位点标记）。"""
+        self._mark.setText(text)
+
+    def clear_monitor(self) -> None:
+        """退出/停止静默监控后恢复默认位点标记。"""
+        self._mark.setText(self._mark_original)
+
 
 class VideoOverviewPage(QWidget):
     """视频总览：位点标记网格。"""
-    open_stream_requested = pyqtSignal(int)
+    # (cid, video_path|None) —— 若该位点正被静默监控，带上视频路径供实时页直接开始
+    open_stream_requested = pyqtSignal(int, object)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setObjectName("videoPage")
         self._total = config.GRID_ROWS * config.GRID_COLS
+        self._cells: dict[int, VideoMarkCell] = {}
+        self._videos: dict[int, str] = {}      # cid -> 视频路径（静默监控映射）
+        self._monitoring = False
+        self._mon_done = False
+        self._poll = QTimer(self)
+        self._poll.setInterval(config.MONITOR_POLL_MS)
+        self._poll.timeout.connect(self._poll_tick)
         self._build_ui()
+        self._set_hint(labels.MONITOR_IDLE_HINT)
+        self._wire_worker()
         narrative.event(
             "video_overview_init",
-            note="v3.0 视频总览：位点标记网格（双击进入视频流检测）")
+            note="v3.0 视频总览：位点标记网格（双击进入视频流检测 / 54 路静默监控）")
 
+    def _wire_worker(self) -> None:
+        worker = get_vision_worker()
+        worker.ensure_started()
+        worker.job_event.connect(self._on_worker_event)
+
+    def _set_hint(self, text: str) -> None:
+        if self._current_hint is not None:
+            self._current_hint.setText(text)
+
+    def _on_mark_opened(self, cid: int) -> None:
+        """位点双击：若该路正被静默监控，带上其视频路径，实时页直接开始检测。"""
+        path = self._videos.get(cid)
+        self.open_stream_requested.emit(cid, path)
+
+    # ------------------------------------------------------------ 静默监控控制
+    def _choose_videos(self) -> None:
+        files, _sel = QFileDialog.getOpenFileNames(
+            self, labels.MONITOR_CHOOSE_DIALOG_TITLE.format(
+                max=config.MONITOR_MAX_VIDEOS),
+            "", labels.VIDEO_IMPORT_FILTER)
+        if not files:
+            return
+        if len(files) > config.MONITOR_MAX_VIDEOS:
+            self._set_hint(labels.MONITOR_TOO_MANY_ERROR.format(
+                max=config.MONITOR_MAX_VIDEOS, n=len(files)))
+            return
+        self._videos = {cid: path for cid, path in enumerate(files, start=1)}
+        self._start_btn.setEnabled(True)
+        self._set_hint(labels.MONITOR_CHOOSE_DIALOG_TITLE.format(
+            max=config.MONITOR_MAX_VIDEOS))
+
+    def _load_manifest(self) -> None:
+        """从 .txt 清单加载视频列表（每行一个路径，行序对应 CH-01…）。
+
+        相对路径按清单所在目录解析（便于写 ``video\\FP02.mp4`` 这类相对路径）。
+        """
+        mfile, _sel = QFileDialog.getOpenFileName(
+            self, labels.MONITOR_MANIFEST_DIALOG_TITLE, "",
+            labels.MONITOR_MANIFEST_FILTER)
+        if not mfile:
+            return
+        base = os.path.dirname(mfile)
+        self._videos = {}
+        for idx, raw in enumerate(open(mfile, encoding="utf-8"), start=1):
+            path = raw.strip().lstrip("\ufeff")   # 剥 UTF-8 BOM
+            if not path or path.startswith("#"):
+                continue
+            if not os.path.isabs(path):
+                full = os.path.join(base, path)
+                if not os.path.exists(full):       # 也试相对工作目录
+                    full = os.path.join(os.getcwd(), path)
+            else:
+                full = path
+            if not os.path.exists(full):
+                self._set_hint(labels.MONITOR_MANIFEST_MISSING.format(
+                    idx=idx, path=path))
+                return
+            self._videos[len(self._videos) + 1] = full
+            if len(self._videos) >= config.MONITOR_MAX_VIDEOS:
+                break
+        if not self._videos:
+            self._set_hint(labels.MONITOR_MANIFEST_EMPTY)
+            return
+        self._choose_btn.setEnabled(False)
+        self._start_btn.setEnabled(True)
+        self._set_hint(labels.MONITOR_MANIFEST_LOADED.format(
+            n=len(self._videos)))
+        _log.info("monitor manifest loaded: %d videos", len(self._videos))
+
+    def _start_monitor(self) -> None:
+        if not self._videos:
+            self._set_hint(labels.MONITOR_EMPTY_ERROR)
+            return
+        worker = get_vision_worker()
+        worker.ensure_started()
+        jobs = [{"job": cid, "video": path}
+                for cid, path in self._videos.items()]
+        worker.send({"cmd": "monitor", "jobs": jobs, "loop": True})
+        self._monitoring = True
+        self._mon_done = False
+        self._set_controls(True)
+        self._set_hint(labels.MONITOR_RUNNING_HINT.format(
+            count=len(jobs), fps=config.MONITOR_FPS,
+            size=config.MONITOR_INPUT_TEXT))
+        self._poll.start()
+        for cell in self._cells.values():
+            cell.clear_monitor()
+        for cid in self._videos:
+            self._cells[cid].set_monitor(labels.CELL_MONITOR_OPENING)
+        _log.info("silent monitor start: %d videos", len(jobs))
+
+    def _stop_monitor(self) -> None:
+        get_vision_worker().send({"cmd": "monitor_stop"})
+        self._set_controls(False)
+        self._set_hint(labels.MONITOR_IDLE_HINT)
+
+    def _set_controls(self, running: bool) -> None:
+        self._choose_btn.setEnabled(not running)
+        self._load_btn.setEnabled(not running)
+        self._start_btn.setEnabled(False)
+        self._stop_btn.setEnabled(running)
+
+    def _poll_tick(self) -> None:
+        get_vision_worker().send({"cmd": "snapshot"})
+
+    def _apply_snapshot(self, streams: list[dict], done: bool) -> None:
+        by_job = {s["job"]: s for s in streams}
+        for cid in self._videos:
+            s = by_job.get(cid)
+            if s is None:
+                continue
+            status = s.get("status")
+            if status == "done":
+                text = labels.CELL_MONITOR_DONE
+            elif status == "error":
+                text = labels.CELL_MONITOR_ERROR + " " + (s.get("error") or "")
+            elif status == "opening":
+                text = labels.CELL_MONITOR_OPENING
+            else:  # running / opened
+                n = sum(s.get("flashes", {}).values())
+                text = labels.CELL_MONITOR_LOOP_TEMPLATE.format(
+                    n=n, loops=s.get("loops", 0))
+            self._cells[cid].set_monitor(text)
+        if done:
+            self._finish_monitor()
+
+    def _finish_monitor(self) -> None:
+        self._monitoring = False
+        self._mon_done = True
+        self._poll.stop()
+        self._set_controls(False)
+        self._set_hint(labels.MONITOR_DONE)
+
+    def _on_worker_event(self, payload: dict) -> None:
+        if not self._monitoring:
+            return
+        ptype = payload.get("type")
+        if ptype == "snapshot":
+            self._apply_snapshot(payload.get("streams", []),
+                                 bool(payload.get("done")))
+        elif ptype == "error":
+            self._set_hint(labels.MONITOR_POLLING_ERROR.format(
+                msg=payload.get("message", "")))
+        elif ptype == "monitor_finished":
+            if not self._mon_done:
+                # 未走正常 done 就结束 → 非循环/异常退出，明确提示避免误判
+                self._set_hint(labels.MONITOR_ABNORMAL_FINISH)
+            self._finish_monitor()
+
+    # ------------------------------------------------------------ 会话/worker
+    def shutdown_monitor(self) -> None:
+        if self._monitoring or self._poll.isActive():
+            self._poll.stop()
+        get_vision_worker().send({"cmd": "monitor_stop"})
+        for cell in self._cells.values():
+            cell.clear_monitor()
+
+    # ------------------------------------------------------------ 布局
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -105,6 +287,36 @@ class VideoOverviewPage(QWidget):
         bl.addWidget(hint)
         outer.addWidget(bar)
 
+        # 静默集中监控工具条
+        mbar = QFrame(self)
+        mbar.setObjectName("videoToolbar")
+        ml = QHBoxLayout(mbar)
+        ml.setContentsMargins(12, 6, 12, 6)
+        ml.setSpacing(10)
+        mstat = QLabel("")
+        mstat.setObjectName("videoInfo")
+        self._current_hint = mstat
+        ml.addWidget(mstat, 1)
+        self._load_btn = QPushButton(labels.MONITOR_LOAD_MANIFEST_BTN)
+        self._load_btn.setObjectName("videoBtn")
+        self._load_btn.clicked.connect(self._load_manifest)
+        ml.addWidget(self._load_btn)
+        self._choose_btn = QPushButton(labels.MONITOR_CHOOSE_BTN)
+        self._choose_btn.setObjectName("videoBtn")
+        self._choose_btn.clicked.connect(self._choose_videos)
+        ml.addWidget(self._choose_btn)
+        self._start_btn = QPushButton(labels.MONITOR_START_BTN)
+        self._start_btn.setObjectName("videoBtnAccent")
+        self._start_btn.setEnabled(False)
+        self._start_btn.clicked.connect(self._start_monitor)
+        ml.addWidget(self._start_btn)
+        self._stop_btn = QPushButton(labels.MONITOR_STOP_BTN)
+        self._stop_btn.setObjectName("videoBtn")
+        self._stop_btn.setEnabled(False)
+        self._stop_btn.clicked.connect(self._stop_monitor)
+        ml.addWidget(self._stop_btn)
+        outer.addWidget(mbar)
+
         # 位点网格
         grid = QGridLayout()
         grid.setContentsMargins(_S.VIDEO_GRID_MARGIN, _S.VIDEO_GRID_MARGIN,
@@ -118,9 +330,10 @@ class VideoOverviewPage(QWidget):
 
         for cid in range(1, self._total + 1):
             cell = VideoMarkCell(cid, self)
-            cell.opened.connect(self.open_stream_requested.emit)
+            cell.opened.connect(self._on_mark_opened)
             row = (cid - 1) // config.GRID_COLS
             col = (cid - 1) % config.GRID_COLS
             grid.addWidget(cell, row, col)
+            self._cells[cid] = cell
 
         outer.addLayout(grid, 1)

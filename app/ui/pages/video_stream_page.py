@@ -502,11 +502,20 @@ class VideoStreamPage(QWidget):
             target, Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     # -- 公共 API / 生命周期 --------------------------------------------------
-    def set_channel(self, cid: int) -> None:
+    def set_channel(self, cid: int, video_path: Optional[str] = None) -> None:
+        """设置频道；若带 video_path（来自静默监控单击），直接载入并开始实时检测。"""
         self._stop_detection()
         self._cid = cid
         self._title.setText(labels.VIDEO_STREAM_TITLE_TEMPLATE.format(cid=cid))
-        _log.info("video stream set channel: CH-%02d", cid)
+        if video_path:
+            self._video_path = video_path
+            self._video.setText(os.path.basename(video_path))
+            self._result._reset()
+            self._btn_start.setEnabled(True)
+            _log.info("video stream set channel CH-%02d (带路径，直启)", cid)
+            self._btn_start.click()   # 自动开始实时检测
+        else:
+            _log.info("video stream set channel: CH-%02d", cid)
 
     def closeEvent(self, event) -> None:
         # 仅停止当前检测；worker 为全局单例，由 HomePage 在应用退出时统一关闭
