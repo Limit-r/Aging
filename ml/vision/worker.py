@@ -63,25 +63,59 @@ def emit(payload: dict) -> None:
 
 
 class FlashTracker:
-    """按「基础类 + 槽位」分配 LED ID，统计 off→on 翻转次数。"""
+    """按「基础类 + 槽位」分配 LED ID，统计 off→on 翻转次数与亮/灭时长。
+
+    除闪烁次数外，还记录每个 LED 的：
+    - ``first_on``：检测开始后第几秒首次亮灯（`None` 表示整个过程从未亮过）
+    - ``on_sec`` / ``off_sec``：累计亮/灭时长（秒）
+    """
 
     def __init__(self):
         self.ids: list[str] = []
         self.last: dict[str, str] = {}
         self.flashes: dict[str, int] = {}
+        self.first_on: dict[str, float | None] = {}
+        self.on_sec: dict[str, float] = {}
+        self.off_sec: dict[str, float] = {}
+        self._prev_t: float = 0.0
 
-    def update(self, samples: dict[str, str]) -> dict[str, int]:
+    def update(self, samples: dict[str, str], t: float) -> dict[str, int]:
         for led_id in samples:
             if led_id not in self.ids:
                 self.ids.append(led_id)
                 self.last[led_id] = None
                 self.flashes[led_id] = 0
+                self.first_on[led_id] = None
+                self.on_sec[led_id] = 0.0
+                self.off_sec[led_id] = 0.0
+        dt = max(t - self._prev_t, 0.0)
+        self._prev_t = t
         for led_id, st in samples.items():
             prev = self.last[led_id]
             if prev == "L" and st == "H":
                 self.flashes[led_id] += 1
+            if (prev is None or prev == "L") and st == "H" \
+                    and self.first_on[led_id] is None:
+                self.first_on[led_id] = round(t, 1)
+            if st == "H":
+                self.on_sec[led_id] += dt
+            else:
+                self.off_sec[led_id] += dt
             self.last[led_id] = st
         return dict(self.flashes)
+
+    def timing(self) -> dict[str, dict]:
+        """导出每个 LED 的亮灭时刻统计（供 GUI 折线图 / 时刻表展示）。"""
+        out = {}
+        for led in self.ids:
+            out[led] = {
+                "state": self.last.get(led),
+                "on": self.first_on.get(led),        # 检测后首亮秒（无则 None）
+                "on_s": round(self.on_sec.get(led, 0.0), 1),
+                "off_s": round(self.off_sec.get(led, 0.0), 1),
+                "flashes": self.flashes.get(led, 0),
+            }
+        return out
 
 
 def _assign_led_ids(dets, hl) -> dict[str, str]:
@@ -158,7 +192,8 @@ def run_job(engine: DetectionEngine, job: int, video: str, outdir: str,
                 dets = engine.detect(frame)
                 hl = engine.classify(frame, dets)
             samples = _assign_led_ids(dets, hl)
-            flashes = tracker.update(samples)
+            elapsed = time.time() - t0
+            flashes = tracker.update(samples, elapsed)
 
             from collections import Counter
             counts = Counter(d["name"] for d in dets)
@@ -169,12 +204,12 @@ def run_job(engine: DetectionEngine, job: int, video: str, outdir: str,
                     continue
                 hl_counts.setdefault(d["name"], {"H": 0, "L": 0})[h[0]] += 1
 
-            elapsed = round(time.time() - t0, 1)
             emit({
                 "type": "sample", "job": job, "frame": frame_idx,
                 "time": round(frame_idx / fps, 2), "det": len(dets),
                 "counts": dict(counts), "hl": hl_counts,
-                "flashes": flashes, "elapsed": elapsed,
+                "flashes": flashes, "elapsed": round(elapsed, 1),
+                "sw": tracker.timing(),
             })
             _draw(frame, dets, hl)
             thumb_h = int(H * scale)

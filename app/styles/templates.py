@@ -1686,6 +1686,11 @@ QLabel#vsBadge[vbadge="H"] {{
     background-color: {c.TEXT_NEON_GREEN};
     border-color: {c.TEXT_NEON_GREEN};
 }}
+QLabel#vsBadge[vbadge="L"] {{
+    color: {c.BG_DEEP};
+    background-color: {c.TEXT_DANGER};
+    border-color: {c.TEXT_DANGER};
+}}
 QLabel#vsBadge[vbadge="H"][active="false"] {{
     color: {c.TEXT_DIM};
     background-color: transparent;
@@ -1705,5 +1710,36 @@ QLabel#vsFlashChip {{
     padding: 1px 6px;
     font-family: {f.FAMILY_MONO};
     font-size: {fs.XS}pt;
+}}
+
+/* 闪烁折线图容器 */
+QWidget#vsResult {{
+    background: transparent;
+}}
+QWidget#vsTimingScroll {{
+    background-color: {c.BG_DEEP};
+    border: 1px solid {c.BORDER_OFFLINE};
+    border-radius: {s.RADIUS_SM}px;
+}}
+QWidget#vsTimingHost {{
+    background-color: {c.BG_DEEP};
+}}
+QWidget#vsTimingRow {{
+    background-color: {c.BG_CELL_TOP};
+    border: 1px solid {c.BORDER_OFFLINE};
+    border-radius: {s.RADIUS_SM}px;
+}}
+QLabel#vsTimingStat {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    background: transparent;
+}}
+QLabel#vsTimingFlash {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    font-weight: bold;
+    background: transparent;
 }}
 """

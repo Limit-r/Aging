@@ -307,6 +307,8 @@ class Sizing:
     VIDEO_CELL_MIN_H: int = 104        # 单元格最小高
     VIDEO_THUMB_CORN_RADIUS: int = 4   # 缩略图圆角（若需要）
     VIDEO_BADGE_H: int = 18            # 结果面板 H/L 徽章高度
+    VIDEO_CHART_H: int = 150            # 闪烁折线图高度
+    VIDEO_TIMING_ROW_H: int = 22        # LED 时刻表行高
 
     # ---- 数据标注 · 视频导入对话框 ------------------------------------------
     VIDEO_DIALOG_MARGIN: int = 16      # 对话框内边距
