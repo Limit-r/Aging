@@ -1662,4 +1662,12 @@ QLabel#vsSectionTitle {{
     letter-spacing: 1px;
     background: transparent;
 }}
+
+QLabel#vsSeriesSummary {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    padding: 2px 0;
+    background: transparent;
+}}
 """

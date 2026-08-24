@@ -57,6 +57,7 @@ from app.ui.pages.settings_page import SettingsPage
 from app.ui.pages.video_page import VideoOverviewPage
 from app.ui.pages.video_stream_page import VideoStreamPage
 from app.ui.router import PageRouter
+from app.ui.vision_worker import get_vision_worker
 
 
 _log = get_logger("app.ui.home_page")
@@ -590,4 +591,9 @@ class HomePage(QMainWindow):
                 and not self._data_page.confirm_close():
             event.ignore()
             return
+        # 应用退出：统一关闭全局常驻检测 worker（若已启动）
+        try:
+            get_vision_worker().shutdown()
+        except Exception as e:  # noqa: BLE001  退出阶段异常不阻塞关闭
+            _log.warning("shutdown vision worker failed: %r", e)
         super().closeEvent(event)

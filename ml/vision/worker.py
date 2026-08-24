@@ -43,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import cv2  # noqa: E402
 
-from engine import DetectionEngine  # noqa: E402
+from engine import DetectionEngine, is_background_class  # noqa: E402
 
 THUMB_WIDTH = 420
 PALETTE = [
@@ -89,13 +89,16 @@ def _assign_led_ids(dets, hl) -> dict[str, str]:
     groups: dict[str, list] = defaultdict(list)
     for i, d in enumerate(dets):
         name = d["name"]
-        if name.endswith("_area") or name.lower().endswith("area"):
+        if is_background_class(name):
             continue
         hlv = hl.get(i)
         if hlv is None:
             continue
         cx = (d["x1"] + d["x2"]) / 2.0
-        groups[name].append((cx, hlv[0]))
+        # 到达此处的 area 类均为功率灯(*_PWR_area)，剥掉 _area 后缀，
+        # 统一以 pwr 信号灯类别进入统计，避免显示成 pwr_area
+        base = name[:-len("_area")] if name.endswith("_area") else name
+        groups[base].append((cx, hlv[0]))
     samples: dict[str, str] = {}
     for base, items in groups.items():
         items.sort(key=lambda t: t[0])
@@ -122,33 +125,46 @@ def _draw(frame, dets, hl):
 
 def run_job(engine: DetectionEngine, job: int, video: str, outdir: str,
             conf: float, nms: float) -> None:
-    """单个检测 job 线程体。"""
-    video = str(Path(video).resolve())
-    stop = _jobs.get(job, {}).get("stop")
-    if stop is None:
-        return
-    if not Path(video).exists():
-        emit({"type": "error", "job": job, "message": f"视频不存在: {video}"})
-        return
+    """单个检测 job 线程体。
 
-    cap = cv2.VideoCapture(video)
-    if not cap.isOpened():
-        emit({"type": "error", "job": job, "message": "无法打开视频: " + video})
+    - **逐帧**检测不抽帧；按视频帧率匀速推进（真实速度检测），
+      使一段 16s 的视频以约 16s 的时长处理，实时画面与统计随视频时间推进。
+    - 兼容前节流：推理比实时慢时以实际推理速度运行（只快不慢）。
+    - 结束/异常/停止时保证把 job 从 `_jobs` 移除，避免同 job 无法再次被调度。
+    """
+    video_path = str(Path(video).resolve())
+    entry = _jobs.get(job)
+    if entry is None:
         return
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    emit({"type": "job_start", "job": job, "w": W, "h": H, "fps": fps,
-          "total": total})
-
-    out_dir = Path(outdir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    tracker = FlashTracker()
-    scale = THUMB_WIDTH / W if W else 1.0
-    frame_idx = 0
-    t0 = time.time()
+    stop = entry["stop"]
+    cap = None
     try:
+        if not Path(video_path).exists():
+            emit({"type": "error", "job": job,
+                  "message": f"视频不存在: {video_path}"})
+            return
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            emit({"type": "error", "job": job,
+                  "message": "无法打开视频: " + video_path})
+            return
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        emit({"type": "job_start", "job": job, "w": W, "h": H, "fps": fps,
+              "total": total})
+
+        out_dir = Path(outdir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        tracker = FlashTracker()
+        scale = THUMB_WIDTH / W if W else 1.0
+        frame_idx = 0
+        t0 = time.time()
+        t_next = t0                       # 节流目标时间（对齐视频帧率）
+        period = 1.0 / fps if fps > 0 else 1.0 / 30.0
+        last_states: dict[str, str] = {}
+        last_sec = -1
         while not stop.is_set():
             ret, frame = cap.read()
             if not ret:
@@ -158,23 +174,22 @@ def run_job(engine: DetectionEngine, job: int, video: str, outdir: str,
                 dets = engine.detect(frame)
                 hl = engine.classify(frame, dets)
             samples = _assign_led_ids(dets, hl)
+            # 记录每个 LED 最近一次的 H/L 状态（项缺失则沿用旧值，抗单帧漏检）
+            last_states.update(samples)
             flashes = tracker.update(samples)
 
-            from collections import Counter
-            counts = Counter(d["name"] for d in dets)
-            hl_counts: dict[str, dict[str, int]] = {}
-            for i, d in enumerate(dets):
-                h = hl.get(i)
-                if h is None:
-                    continue
-                hl_counts.setdefault(d["name"], {"H": 0, "L": 0})[h[0]] += 1
+            elapsed = time.time() - t0
+            this_sec = int(frame_idx / fps)
+            # 图表/统计按 1Hz 采样上报；实时画面仍逐帧写缩略图，互不阻塞
+            if this_sec != last_sec:
+                last_sec = this_sec
+                emit({
+                    "type": "sample", "job": job, "frame": frame_idx,
+                    "elapsed": round(elapsed, 1),
+                    "flashes": dict(flashes),
+                    "states": dict(last_states),
+                })
 
-            emit({
-                "type": "sample", "job": job, "frame": frame_idx,
-                "time": round(frame_idx / fps, 2), "det": len(dets),
-                "counts": dict(counts), "hl": hl_counts,
-                "flashes": flashes, "elapsed": round(time.time() - t0, 1),
-            })
             _draw(frame, dets, hl)
             thumb_h = int(H * scale)
             if thumb_h > 0 and frame_idx % 2 == 0:
@@ -182,16 +197,28 @@ def run_job(engine: DetectionEngine, job: int, video: str, outdir: str,
                                    interpolation=cv2.INTER_AREA)
                 cv2.imwrite(str(out_dir / f"cell_{job}.jpg"), thumb,
                             [cv2.IMWRITE_JPEG_QUALITY, 80])
+
+            # 真实速度：按视频帧率节流推进，16s 视频 ≈16s 处理完
+            t_next += period
+            delay = t_next - time.time()
+            while delay > 0 and not stop.is_set():
+                time.sleep(min(delay, 0.05))
+                delay = t_next - time.time()
+        emit({"type": "done", "job": job, "frames": frame_idx,
+              "elapsed": round(time.time() - t0, 1)})
     finally:
-        cap.release()
-    emit({"type": "done", "job": job, "frames": frame_idx,
-          "elapsed": round(time.time() - t0, 1)})
+        if cap is not None:
+            cap.release()
+        # 只移除「自己这条 entry」，避免误删 stop→detect 竞态中新建的同 job
+        if _jobs.get(job) is entry:
+            _jobs.pop(job, None)
 
 
 def handle_detect(engine: DetectionEngine, cmd: dict) -> None:
     job = int(cmd["job"])
-    if job in _jobs:
-        return  # 该 job 已在运行
+    entry = _jobs.get(job)
+    if entry is not None and entry["thread"].is_alive():
+        return  # 该 job 仍在运行
     stop = threading.Event()
     thread = threading.Thread(
         target=run_job, args=(engine, job, cmd["video"], cmd["outdir"],

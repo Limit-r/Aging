@@ -24,6 +24,21 @@ DEFAULT_NMS = 0.45
 CLASSIFIER_INPUT = 32
 
 
+def is_background_class(name: str) -> bool:
+    """是否纯背景面积类（应排除，不纳入 LED 统计）。
+
+    - 一般 `*_area`（如 `FP_SIG_area`、`A_area`）是电路/板面背景区域，
+      不应视为信号灯。
+    - 但部署模型中**功率灯以 `*_PWR_area` 表达**（FP 板功率灯只报出
+      `FP_PWR_area`，不会单报 `FP_PWR`），它识别到的是功率信号灯本身，
+      需视作信号灯纳入统计，不按背景排除。
+    """
+    is_area = name.endswith("_area") or name.lower().endswith("area")
+    if not is_area:
+        return False
+    return "pwr" not in name.lower()
+
+
 def deployed_paths() -> dict:
     """返回 ml/deploy/ 下的统一部署产物路径（5 键）。"""
     return {
@@ -169,8 +184,7 @@ class DetectionEngine:
 
         h, w = frame_bgr.shape[:2]
         indexes = [(i, d) for i, d in enumerate(dets)
-                   if not d["name"].endswith("_area")
-                   and not d["name"].lower().endswith("area")]
+                   if not is_background_class(d["name"])]
         if not indexes:
             return {}
 

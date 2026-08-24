@@ -92,6 +92,17 @@ class Colors:
     LED_WARNING: tuple = (255, 174, 66, 255)    # 警告橙（≤60s）
     LED_SELECTED: tuple = (255, 255, 255, 255)  # 选中态白（叠加层）
     LED_HOVER: tuple = (200, 220, 255, 200)     # hover 高亮
+    # 波形图 LED 位点描边色（RGB，多色循环区分不同 LED）
+    VIDEO_WAVE_COLORS: tuple = (
+        (0, 191, 255),    # 深天蓝
+        (255, 174, 66),   # 橙
+        (16, 255, 161),   # 霓虹绿
+        (167, 139, 250),  # 紫
+        (255, 59, 92),    # 玫红
+        (0, 229, 255),    # 霓虹青
+        (255, 206, 89),   # 琥珀
+        (130, 220, 255),  # 浅蓝
+    )
 
     # ---- 数据标注 · 画框调色板（QGraphicsView 直接用于 QColor，RGB tuple）----
     # 类别 → 框色循环映射，让不同标注类在图片上可区分
@@ -306,7 +317,14 @@ class Sizing:
     VIDEO_CELL_MIN_W: int = 140        # 单元格最小宽
     VIDEO_CELL_MIN_H: int = 104        # 单元格最小高
     VIDEO_THUMB_CORN_RADIUS: int = 4   # 缩略图圆角（若需要）
-    VIDEO_CHART_BLOCK_H: int = 130       # 每张系列折线图高度
+    VIDEO_CHART_BLOCK_H: int = 130       # 每张系列波形图高度
+    VIDEO_WAVE_ALPHA: int = 200          # 波形「亮」填充透明度（0-255）
+    WORKER_FORCE_KILL_WAIT_MS: int = 2000  # worker 优雅退出超时后强制 kill 的等待
+    VIDEO_WAVE_LANE_H: int = 56            # 每个 LED 位点波形行的最小高度(px)
+    VIDEO_WAVE_HIGH_INSET: float = 0.80    # 方波「亮」在行内的位置(行高为1)
+    VIDEO_WAVE_LOW_INSET: float = 0.20     # 方波「灭」在行内的位置(行高为1)
+    VIDEO_PREVIEW_MAX_W: int = 520         # 视频预览最大宽
+    VIDEO_PREVIEW_MAX_H: int = 360         # 视频预览最大高
 
     # ---- 数据标注 · 视频导入对话框 ------------------------------------------
     VIDEO_DIALOG_MARGIN: int = 16      # 对话框内边距

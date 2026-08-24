@@ -1,53 +1,64 @@
-"""v3.0 视频流检测页（单通道详情）。
+"""v3.1 视频流检测页（单通道详情）。
 
 从视频总览双击某位点进入本页。针对该通道：
-- 「导入视频」选择本地视频，「开始」下达检测命令给**常驻 worker**。
-- 常驻 worker（`ml/vision/worker.py`）在进程启动时**预加载** YOLO+TinyConv 模型，
-  之后按 job 逐帧检测，避免每次开始检测都重新加载模型。
-- GUI 只通过 QProcess 向 worker 写 stdin 命令、读 stdout 事件（JSON），
-  **不向 GUI 进程引入 torch**。
+- 「导入视频」选择本地视频，「开始」下达检测命令给**全局常驻 worker**。
+- 常驻 worker（`ml/vision/worker.py`，由 `app/ui/vision_worker.py` 单例管理）
+  在进程启动时**预加载** YOLO+TinyConv 模型，之后按 job 逐帧检测，复用不重复启动。
+- GUI 只向 worker 的 stdin 写命令、读 stdout 事件（JSON），**不向 GUI 引入 torch**。
 
-结果面板：实时检测画面 + VPL / CPL / PWR 三条闪烁折线图。
+结果面板：
+- **系列自动判定（仅标题）**：根据检测结果（LED 基础类前缀）自动标注系列
+  （FP / A / 其他）。
+- **所有信号灯类别都纳入**：检测到的信号灯（含 pwr，worker 侧已排除 area）
+  全部进入亮灭统计，不按系列丢弃。
+- **按统一位置分组多表**：把信号灯按槽位（LED 名末位 `_N`）分组，
+  同一槽位的 `pwr0`/`vpl0` 排在同一张亮灭方波表内相邻；最多 4 张表。
+- 每张表：Y 轴=LED 位点行、X 轴=时间，亮(H)/灭(L) 以方波折线表示；
+  表下方一行统计该组累计闪烁次数 + 检测时长。
+- 视频预览按输入分辨率等比缩放到固定小窗口居中显示。
 """
 from __future__ import annotations
 
-import json
 import os
-import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
 from typing import Optional
 
-from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
-    QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
+    QFileDialog, QFrame, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 import pyqtgraph as pg
 
-from app.core import config, labels
+from app.core import labels
 from app.core.tokens import DEFAULT_TOKENS
 from app.observability import get_logger, narrative
+from app.ui.vision_worker import get_vision_worker
 
 _S = DEFAULT_TOKENS.sizing
 _C = DEFAULT_TOKENS.colors
-PROJECT_ROOT = Path(__file__).resolve().parents[3]   # d:\Aging
-WORKER_SCRIPT = PROJECT_ROOT / "ml" / "vision" / "worker.py"
 
 _log = get_logger("app.ui.pages.video_stream_page")
 
+# 一个通道内最多同时展示的亮灭分组表数
+MAX_TABLES = 4
+
 
 class VsResultPanel(QWidget):
-    """检测结果面板：按系列（FP / A / 其他）各独立一张闪烁折线图。
+    """按统一位置分组的 LED 亮灭方波图（最多 4 张表）+ 每组闪烁/时长统计。
 
-    area 类已在 worker 侧排除，仅统计信号灯（CPL/VPL 等）的闪烁；
-    系列自动区分：FP 系列 / A 系列 / 后续其他系列。
+    - **所有信号灯类别都纳入**：检测到的信号灯（含 pwr，worker 侧已排除 area）
+      全部进入统计，不按系列丢弃；系列仅在标题标注（best-effort）。
+    - **分组多表**：信号灯按槽位（`base_<slot>` 的末位 `slot`）分组，
+      同一槽位的 LED（如 pwr0 / vpl0）编排在同一张表内相邻；最多 `MAX_TABLES` 张。
+    - 每张表：Y 轴为组内 LED 位点行，X 轴为时间，亮(H)/灭(L) 以方波折线表达；
+      表下方一行统计该组累计闪烁 + 检测时长。
+    - 硬性约定：用户可见文案一律 `labels.X`，尺寸/颜色走 `tokens.X`。
     """
-
-    # 系列标识（自动区分；除 FP/A 外的其他系列归入 other）
-    SERIES_ORDER: tuple = ("FP", "A", "other")
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -60,50 +71,23 @@ class VsResultPanel(QWidget):
         self._title.setObjectName("vsPanelTitle")
         lay.addWidget(self._title)
 
-        self._flash_title = QLabel(labels.VIDEO_FLASH_SECTION_TITLE)
-        self._flash_title.setObjectName("vsSectionTitle")
-        lay.addWidget(self._flash_title)
-
-        # 系列滚动区：窗口高度不足时内部滚动，不再挤压窗口尺寸
+        # 滚动区：多张表时整体增高，面板内部滚动而不挤压窗口
         self._scroll = QScrollArea()
         self._scroll.setObjectName("vsSeriesScroll")
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.NoFrame)
         self._host = QWidget()
         self._host.setObjectName("vsSeriesHost")
-        self._blocks = QVBoxLayout(self._host)
-        self._blocks.setContentsMargins(0, 0, 0, 0)
-        self._blocks.setSpacing(10)
+        self._host_lay = QVBoxLayout(self._host)
+        self._host_lay.setContentsMargins(0, 0, 0, 0)
+        self._host_lay.setSpacing(12)
         self._scroll.setWidget(self._host)
 
-        self._charts: dict = {}
-        self._series: dict = {}
-        palette = [_C.LED_PAUSED, _C.LED_RUNNING, _C.LED_WARNING]
-        for i, series in enumerate(self.SERIES_ORDER):
-            block = QWidget()
-            bv = QVBoxLayout(block)
-            bv.setContentsMargins(0, 0, 0, 0)
-            bv.setSpacing(4)
-            display = labels.VIDEO_SERIES_OTHER if series == "other" else series
-            stitle = QLabel(
-                labels.VIDEO_SERIES_TITLE_TEMPLATE.format(series=display))
-            stitle.setObjectName("vsSectionTitle")
-            plot = pg.PlotWidget()
-            plot.setObjectName("vsFlashChart")
-            bg = _C.RACK_3D_BG
-            plot.setBackground(
-                (bg[0] / 255.0, bg[1] / 255.0, bg[2] / 255.0))
-            plot.showGrid(x=True, y=True, alpha=0.25)
-            plot.setLabel("bottom", labels.VIDEO_FLASH_X_LABEL)
-            plot.setLabel("left", labels.VIDEO_FLASH_Y_LABEL)
-            plot.setFixedHeight(_S.VIDEO_CHART_BLOCK_H)
-            c = palette[i]
-            curve = plot.plot(pen=pg.mkPen((c[0], c[1], c[2]), width=2))
-            bv.addWidget(stitle)
-            bv.addWidget(plot)
-            self._blocks.addWidget(block)
-            self._charts[series] = (block, plot, curve)
-            self._series[series] = []
+        self._series_title = QLabel("")
+        self._series_title.setObjectName("vsSectionTitle")
+        self._host_lay.addWidget(self._series_title)
+
+        self._scroll.hide()
         lay.addWidget(self._scroll, 1)
 
         self._placeholder = QLabel(labels.VIDEO_STATS_NONE)
@@ -111,57 +95,194 @@ class VsResultPanel(QWidget):
         self._placeholder.setAlignment(Qt.AlignCenter)
         self._placeholder.setWordWrap(True)
         lay.addWidget(self._placeholder, 1)
-        self._placeholder.hide()
-        self._last_series_sec: int = -1
+        self._placeholder.show()
 
+        # -- 状态 --
+        self._series: Optional[str] = None      # 已判定的系列（FP/A/other）
+        self._seen: set = set()                 # 该系列所有见过的 LED id
+        self._tables: list = []                 # 分组表（按槽位）
+        self._table_for_slot: dict = {}         # slot -> 表
+        self._sec = 0
+
+    # ------------------------------------------------------------------ 系列
     @staticmethod
     def _series_of(led: str) -> str:
         base = led.split("_", 1)[0]
         return base if base in ("FP", "A") else "other"
 
-    def set_data(self, flashes: dict, elapsed: Optional[float] = None) -> None:
-        """刷新各系列折线图。flashes: {led:累计闪烁数}。"""
-        have = bool(flashes)
-        self._placeholder.setVisible(not have)
-        self._title.setVisible(True)
-        self._flash_title.setVisible(have)
-        self._scroll.setVisible(have)
-        if flashes:
-            self._update_chart(flashes, elapsed)
+    @staticmethod
+    def _display_name(series: str) -> str:
+        return labels.VIDEO_SERIES_OTHER if series == "other" else series
 
-    def _update_chart(self, flashes: dict, elapsed: Optional[float]) -> None:
-        sec = int(elapsed) if elapsed is not None else 0
-        if sec > self._last_series_sec:
-            self._last_series_sec = sec
-            for series in self.SERIES_ORDER:
-                total = sum(v for led, v in flashes.items()
-                            if self._series_of(led) == series)
-                self._series[series].append([elapsed, total])
-        for series in self.SERIES_ORDER:
-            pts = self._series[series]
-            if not pts:
+    @staticmethod
+    def _slot_of(led: str) -> str:
+        return led.rsplit("_", 1)[1]
+
+    def _determine_series(self, led_ids: list) -> None:
+        if self._series is not None:
+            return
+        cnt = Counter(self._series_of(led) for led in led_ids)
+        if not cnt:
+            return
+        self._series = max(cnt, key=cnt.get)
+        self._series_title.setText(
+            labels.VIDEO_SERIES_TITLE_TEMPLATE.format(
+                series=self._display_name(self._series)))
+
+    # ------------------------------------------------------------------ 表
+    def _new_table(self, slot: str) -> dict:
+        block = QWidget()
+        bv = QVBoxLayout(block)
+        bv.setContentsMargins(0, 0, 0, 0)
+        bv.setSpacing(4)
+        stitle = QLabel(
+            labels.VIDEO_CH_TABLE_TITLE_TEMPLATE.format(ch=slot))
+        stitle.setObjectName("vsSectionTitle")
+
+        plot = pg.PlotWidget()
+        plot.setObjectName("vsFlashChart")
+        bg = _C.RACK_3D_BG
+        plot.setBackground((bg[0] / 255.0, bg[1] / 255.0, bg[2] / 255.0))
+        plot.showGrid(x=True, y=True, alpha=0.18)
+        plot.setLabel("bottom", labels.VIDEO_WS_X_LABEL)
+        plot.setLabel("left", labels.VIDEO_WS_Y_LABEL)
+        plot.setAntialiasing(True)
+
+        summary = QLabel("")
+        summary.setObjectName("vsSeriesSummary")
+
+        bv.addWidget(stitle)
+        bv.addWidget(plot)
+        bv.addWidget(summary)
+        self._host_lay.addWidget(block)
+
+        return {
+            "slot": slot,
+            "block": block,
+            "plot": plot,
+            "summary": summary,
+            "leds": [],       # 组内 LED（位点行序）
+            "lanes": {},      # led -> 行号
+            "curves": {},     # led -> PlotDataItem
+            "state": {},      # led -> 1/0 最近亮灭
+            "samples": {},    # led -> [[sec, val], ...]
+            "flashes": 0,
+        }
+
+    def _table_for(self, slot: str) -> dict:
+        tb = self._table_for_slot.get(slot)
+        if tb is None:
+            tb = self._new_table(slot)
+            self._tables.append(tb)
+            self._table_for_slot[slot] = tb
+            # 组表按槽位数排序，展示更稳定
+            self._tables.sort(key=lambda t: (int(t["slot"]), t["slot"]))
+        return tb
+
+    # ------------------------------------------------------------------ 绘制
+    def _pen(self, lane: int) -> pg.Pen:
+        cols = _C.VIDEO_WAVE_COLORS
+        c = cols[lane % len(cols)]
+        return pg.mkPen((c[0], c[1], c[2]), width=2)
+
+    def _value(self, tb: dict, led: str, on: bool) -> float:
+        r = tb["lanes"][led]
+        return r + (_S.VIDEO_WAVE_HIGH_INSET if on else _S.VIDEO_WAVE_LOW_INSET)
+
+    def _ensure_lanes(self) -> None:
+        """为该系列所有已知 LED 建立槽位分组与组内行（排序后稳定布局）。
+
+        组表数量受 `MAX_TABLES` 上限约束，超出后新槽位不再创建。
+        """
+        for led in sorted(self._seen):
+            slot = self._slot_of(led)
+            if slot not in self._table_for_slot and \
+                    len(self._table_for_slot) >= MAX_TABLES:
                 continue
-            block, plot, curve = self._charts[series]
-            xs = [p[0] for p in pts]
-            ys = [p[1] for p in pts]
-            curve.setData(xs, ys)
-            plot.setXRange(0, max(xs[-1], 1) + 0.5, padding=0)
-            plot.setYRange(0, max(max(ys), 1), padding=0.1)
+            tb = self._table_for(slot)
+            if led in tb["lanes"]:
+                continue
+            lane = len(tb["leds"])
+            tb["leds"].append(led)
+            tb["lanes"][led] = lane
+            tb["state"][led] = 0
+            tb["samples"][led] = []
+            curve = pg.PlotDataItem(pen=self._pen(lane), stepMode="left")
+            tb["plot"].addItem(curve)
+            tb["curves"][led] = curve
 
-    def set_placeholder(self) -> None:
+    def set_data(self, flashes: dict, elapsed, states: Optional[dict]) -> None:
+        states = states or {}
+        self._sec = int(elapsed) if elapsed is not None else 0
+        led_ids = list(states.keys())
+        if not led_ids:
+            # 尚无检测到任何信号灯，保持占位
+            self._placeholder.setVisible(True)
+            self._scroll.hide()
+            return
+        # 系列仅用于标题（best-effort）；统计不按系列过滤
+        self._determine_series(led_ids)
+        self._placeholder.hide()
+        self._scroll.show()
+        # 纳入全部信号灯 LED（worker 侧已排除 area 类），保持连线连续性
+        for led in led_ids:
+            self._seen.add(led)
+        self._ensure_lanes()
+
+        # 按表推进方波与统计
+        for tb in self._tables:
+            for led in tb["leds"]:
+                if led in states:
+                    tb["state"][led] = 1 if states[led] == "H" else 0
+                tb["samples"][led].append(
+                    [self._sec, self._value(tb, led, tb["state"][led])])
+            tb["flashes"] = sum(
+                flashes.get(led, 0) for led in tb["leds"])
+            self._render(tb)
+
+    def _render(self, tb: dict) -> None:
+        for led in tb["leds"]:
+            pts = tb["samples"][led]
+            if pts:
+                xs = [p[0] for p in pts]
+                ys = [p[1] for p in pts]
+                tb["curves"][led].setData(xs, ys)
+        n = len(tb["leds"])
+        if n:
+            plot = tb["plot"]
+            # Y 轴范围需容纳行内 inset：最下行低值 ≈ LOW_INSET，最上行高值
+            # ≈ (n-1)+HIGH_INSET，否则顶部那行会被裁到可视区外（缩放才可见）
+            lo = _S.VIDEO_WAVE_LOW_INSET
+            hi = _S.VIDEO_WAVE_HIGH_INSET
+            plot.setYRange(-lo - 0.1, (n - 1) + hi + 0.1, padding=0)
+            plot.getAxis("left").setTicks(
+                [[(r + 0.5, led) for r, led in enumerate(tb["leds"])]])
+            plot.setXRange(0, max(self._sec, 1) + 0.5, padding=0)
+            plot.setFixedHeight(
+                max(_S.VIDEO_CHART_BLOCK_H, n * _S.VIDEO_WAVE_LANE_H))
+        tb["summary"].setText(
+            labels.VIDEO_SERIES_SUMMARY_TEMPLATE.format(
+                flashes=tb["flashes"], sec=self._sec))
+
+    # ------------------------------------------------------------------ 复位
+    def _reset(self) -> None:
+        for tb in self._tables:
+            tb["plot"].clear()
+            tb["block"].deleteLater()
+        self._tables = []
+        self._table_for_slot = {}
+        self._series = None
+        self._seen = set()
+        self._sec = 0
+        self._series_title.setText("")
         self._placeholder.setText(labels.VIDEO_STATS_NONE)
         self._placeholder.show()
-        self._title.show()
-        self._flash_title.hide()
         self._scroll.hide()
-        self._series = {s: [] for s in self.SERIES_ORDER}
-        self._last_series_sec = -1
-        for block, plot, curve in self._charts.values():
-            curve.setData([], [])
 
     def set_message(self, msg: str) -> None:
-        self.set_placeholder()
-        self._placeholder.setText(msg or labels.VIDEO_CELL_STATE_ERROR)
+        self._reset()
+        self._placeholder.setText(
+            msg or labels.VIDEO_CELL_STATE_ERROR)
 
 
 class VideoStreamPage(QWidget):
@@ -173,19 +294,22 @@ class VideoStreamPage(QWidget):
         self.setObjectName("videoStreamPage")
         self._cid: Optional[int] = None
         self._video_path: Optional[str] = None
-        self._worker = None       # 常驻 worker QProcess
-        self._worker_buf = ""
-        self._worker_ready = False
-        self._running = False
         self._outdir = Path(tempfile.mkdtemp(prefix="aging_videostream_"))
+        self._running = False
+        self._worker_ready = False
+        # 全局单例 worker：跨页面复用，进程只启动一次
+        self._wm = get_vision_worker()
+        self._wm.ready.connect(self._on_worker_ready)
+        self._wm.fatal.connect(self._on_worker_fatal)
+        self._wm.job_event.connect(self._on_worker_event)
         self._build_ui()
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setInterval(_S.VIDEO_REFRESH_MS)
         self._refresh_timer.timeout.connect(self._refresh_video)
-        self._ensure_worker()
+        self._wm.ensure_started()
         narrative.event(
             "video_stream_init",
-            note="v3.0 视频流检测页：常驻 worker 预加载模型，逐帧检测")
+            note="v3.1 视频流检测页：全局单例 worker + 槽位分组多表亮灭方波图")
 
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
@@ -218,7 +342,7 @@ class VideoStreamPage(QWidget):
         bl.addWidget(self._btn_stop)
         outer.addWidget(bar)
 
-        # 主体：左实时画面 + 右结果卡片
+        # 主体：左实时画面 + 右结果图表
         body = QHBoxLayout()
         body.setContentsMargins(8, 8, 8, 8)
         body.setSpacing(10)
@@ -230,13 +354,24 @@ class VideoStreamPage(QWidget):
         live_title = QLabel(labels.VIDEO_LIVE_TITLE)
         live_title.setObjectName("vsPanelTitle")
         lv.addWidget(live_title)
+        # 预览尺寸随视频等比缩放、居中显示（不再撑满左区域）
+        wrap = QWidget()
+        wh = QHBoxLayout(wrap)
+        wh.setContentsMargins(0, 0, 0, 0)
+        wh.addStretch(1)
+        vv = QVBoxLayout()
+        vv.setContentsMargins(0, 0, 0, 0)
+        vv.addStretch(1)
         self._video = QLabel(labels.VIDEO_PANEL_EMPTY_HINT)
         self._video.setObjectName("vsVideo")
         self._video.setAlignment(Qt.AlignCenter)
         self._video.setWordWrap(True)
-        # Ignored 策略：让图像缩放跟随可用空间，防止图像 sizeHint 顶大窗口/预览区
-        self._video.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
-        lv.addWidget(self._video, 1)
+        vv.addWidget(self._video, 0, Qt.AlignCenter)
+        vv.addStretch(1)
+        wh.addLayout(vv, 0)
+        wh.addStretch(1)
+        lv.addWidget(wrap, 1)
+
         right = QFrame(self)
         right.setObjectName("vsStatsPanel")
         sv = QVBoxLayout(right)
@@ -258,74 +393,45 @@ class VideoStreamPage(QWidget):
         b.setMinimumHeight(_S.TOOLBAR_BTN_MIN_H)
         return b
 
-    # -- 常驻 worker -----------------------------------------------------
-    def _ensure_worker(self) -> None:
-        """启动/复用常驻检测 worker（模型预加载，启动后持续存活）。"""
-        if self._worker is not None:
+    # -- 预览尺寸随视频分辨率缩放 -----------------------------------------
+    def _set_preview_size(self, w, h) -> None:
+        try:
+            w, h = int(w), int(h)
+        except (TypeError, ValueError):
             return
-        proc = QProcess(self)
-        proc.setProcessChannelMode(QProcess.MergedChannels)
-        penv = QProcessEnvironment.systemEnvironment()
-        penv.insert("PYTHONIOENCODING", "utf-8")
-        penv.insert("PYTHONUNBUFFERED", "1")
-        proc.setProcessEnvironment(penv)
-        proc.setWorkingDirectory(str(PROJECT_ROOT))
-        proc.readyReadStandardOutput.connect(self._on_worker_stdout)
-        proc.finished.connect(self._on_worker_finished)
-        proc.errorOccurred.connect(self._on_worker_error)
-        self._worker = proc
-        self._worker_buf = ""
+        if w <= 0 or h <= 0:
+            return
+        max_w = _S.VIDEO_PREVIEW_MAX_W
+        max_h = _S.VIDEO_PREVIEW_MAX_H
+        scale = min(max_w / w, max_h / h, 1.0)
+        self._video.setFixedSize(int(w * scale), int(h * scale))
+        self._video.setPixmap(QPixmap())  # 清空旧图避免残留拉伸
+
+    # -- worker 事件（来自全局单例）-----------------------------------------
+    def _on_worker_ready(self, device: str) -> None:
+        self._worker_ready = True
+        _log.info("vision worker ready: %s", device)
+
+    def _on_worker_fatal(self, message: str) -> None:
         self._worker_ready = False
-        proc.start(sys.executable, [str(WORKER_SCRIPT)])
-        narrative.event("vision_worker_preload", note="常驻检测 worker 启动（模型预加载）")
+        self._result.set_message(
+            message or labels.VIDEO_CELL_STATE_ERROR)
+        self._finish_run()
 
-    def _on_worker_stdout(self) -> None:
-        proc = self._worker
-        if proc is None:
-            return
-        data = bytes(proc.readAllStandardOutput()).decode("utf-8", "replace")
-        lines = (self._worker_buf + data).split("\n")
-        self._worker_buf = lines.pop()
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-            except (ValueError, json.JSONDecodeError):
-                continue
-            self._handle_worker_event(payload)
-
-    def _handle_worker_event(self, payload: dict) -> None:
+    def _on_worker_event(self, payload: dict) -> None:
         ptype = payload.get("type")
-        if ptype == "ready":
-            self._worker_ready = True
-            _log.info("vision worker ready: %s", payload.get("device"))
-        elif ptype == "fatal":
-            self._result.set_message(payload.get("message", ""))
-            self._finish_run()
-        elif ptype == "error" and payload.get("job") == self._cid:
-            self._result.set_message(payload.get("message", labels.VIDEO_CELL_STATE_ERROR))
-            self._finish_run()
+        if ptype == "job_start" and payload.get("job") == self._cid:
+            self._set_preview_size(payload.get("w"), payload.get("h"))
         elif ptype == "sample" and payload.get("job") == self._cid:
             self._result.set_data(
-                payload.get("flashes", {}), payload.get("elapsed"))
+                payload.get("flashes", {}), payload.get("elapsed"),
+                payload.get("states"))
         elif ptype == "done" and payload.get("job") == self._cid:
             self._video.setText(labels.VIDEO_CELL_STATE_DONE)
             self._finish_run()
-
-    def _on_worker_finished(self, _code: int, _status: int) -> None:
-        _log.warning("vision worker exited")
-        self._worker = None
-        self._worker_ready = False
-        if self._running:
-            self._result.set_message(labels.VIDEO_CELL_STATE_ERROR)
-            self._finish_run()
-
-    def _on_worker_error(self, error: QProcess.ProcessError) -> None:
-        _log.warning("vision worker error: %s", error)
-        if self._running:
-            self._result.set_message(labels.VIDEO_CELL_STATE_ERROR)
+        elif ptype == "error" and payload.get("job") == self._cid:
+            self._result.set_message(
+                payload.get("message") or labels.VIDEO_CELL_STATE_ERROR)
             self._finish_run()
 
     # -- 工具条动作 ---------------------------------------------------------
@@ -342,20 +448,19 @@ class VideoStreamPage(QWidget):
         self._stop_detection()
         self._video_path = path
         self._video.setText(os.path.basename(path))
-        self._result.set_placeholder()
+        self._result._reset()
         self._btn_start.setEnabled(True)
 
     def _on_start(self) -> None:
         if self._video_path is None or self._cid is None or self._running:
             return
-        if self._worker is None:
-            self._ensure_worker()
+        self._wm.ensure_started()
         self._video.setText(labels.VIDEO_PANEL_LOADING)
         self._btn_start.setEnabled(False)
         self._btn_stop.setEnabled(True)
         self._running = True
-        self._send({"cmd": "detect", "job": self._cid,
-                    "video": self._video_path, "outdir": str(self._outdir)})
+        self._wm.send({"cmd": "detect", "job": self._cid,
+                       "video": self._video_path, "outdir": str(self._outdir)})
         self._refresh_timer.start()
         narrative.event(
             "video_stream_start", note=f"CH-{self._cid:02d} 逐帧检测启动")
@@ -363,15 +468,9 @@ class VideoStreamPage(QWidget):
     def _on_stop(self) -> None:
         self._stop_detection(mark_idle=True)
 
-    def _send(self, obj: dict) -> None:
-        proc = self._worker
-        if proc is None:
-            return
-        proc.write((json.dumps(obj) + "\n").encode("utf-8"))
-
     def _stop_detection(self, mark_idle: bool = False) -> None:
         if self._cid is not None and self._running:
-            self._send({"cmd": "stop", "job": self._cid})
+            self._wm.send({"cmd": "stop", "job": self._cid})
         self._running = False
         self._stop_timer()
         self._btn_stop.setEnabled(False)
@@ -410,8 +509,6 @@ class VideoStreamPage(QWidget):
         _log.info("video stream set channel: CH-%02d", cid)
 
     def closeEvent(self, event) -> None:
+        # 仅停止当前检测；worker 为全局单例，由 HomePage 在应用退出时统一关闭
         self._stop_detection()
-        if self._worker is not None:
-            self._send({"cmd": "quit"})
-            self._worker.terminate()
         event.accept()
