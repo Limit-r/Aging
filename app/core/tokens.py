@@ -299,6 +299,15 @@ class Sizing:
     DATA_FOOTER_BTN_GAP: int = 8       # 底栏按钮间距
     DATA_PLACEHOLDER_GAP: int = 8      # 占位页子项间距
 
+    # ---- 视频检测页 ---------------------------------------------------------
+    VIDEO_REFRESH_MS: int = 300        # 缩略图/状态刷新间隔
+    VIDEO_GRID_MARGIN: int = 6         # 网格外边距
+    VIDEO_GRID_SPACING: int = 6        # 网格格子间距
+    VIDEO_CELL_MIN_W: int = 140        # 单元格最小宽
+    VIDEO_CELL_MIN_H: int = 104        # 单元格最小高
+    VIDEO_THUMB_CORN_RADIUS: int = 4   # 缩略图圆角（若需要）
+    VIDEO_BADGE_H: int = 18            # 结果面板 H/L 徽章高度
+
     # ---- 数据标注 · 视频导入对话框 ------------------------------------------
     VIDEO_DIALOG_MARGIN: int = 16      # 对话框内边距
     VIDEO_DIALOG_SPACING: int = 12     # 对话框子项间距

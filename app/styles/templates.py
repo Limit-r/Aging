@@ -1494,3 +1494,216 @@ QProgressBar#dcTrainProgress::chunk {{
     border-radius: 2px;
 }}
 """
+
+
+# ---- 视频检测页（总览 + 单通道视频流） ------------------------------------
+def video_page(t: DesignTokens) -> str:
+    """视频总览（位点标记） + 视频流检测页。"""
+    c, fs, f, s = t.colors, t.font_sizes, t.fonts, t.sizing
+    return f"""
+/* ---- 视频总览：位点标记 ---- */
+QWidget#videoPage {{
+    background-color: {c.BG_DEEP};
+}}
+
+QFrame#videoToolbar {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_TITLE_BAR}, stop:1 {c.BG_DEEP});
+    border-bottom: 1px solid {c.BORDER_PRIMARY};
+    border-top: 1px solid {rgba(c.BORDER_PRIMARY, 40)};
+}}
+
+QLabel#videoTitle {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_TITLE};
+    font-size: 14pt;
+    font-weight: bold;
+    letter-spacing: 2px;
+    background: transparent;
+}}
+
+QLabel#videoInfo {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: 10pt;
+    background: transparent;
+}}
+
+QFrame#videoCell {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_CELL_TOP}, stop:1 {c.BG_CELL_BOTTOM});
+    border: 1px solid {c.BORDER_OFFLINE};
+    border-radius: {s.RADIUS_CELL}px;
+}}
+QFrame#videoCell:hover {{
+    border-color: {c.BORDER_HOVER};
+}}
+QFrame#videoCell:selected {{
+    border-color: {c.BORDER_SELECTED};
+}}
+
+QLabel#videoCellHeader {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.CELL_ID}pt;
+    font-weight: bold;
+    background: transparent;
+}}
+
+QLabel#videoCellMark {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+    background: transparent;
+}}
+
+QLabel#videoCellHint {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    background: transparent;
+}}
+
+/* ---- 视频流检测页：单通道 ---- */
+QWidget#videoStreamPage {{
+    background-color: {c.BG_DEEP};
+}}
+
+QFrame#vsToolbar {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_TITLE_BAR}, stop:1 {c.BG_DEEP});
+    border-bottom: 1px solid {c.BORDER_PRIMARY};
+    border-top: 1px solid {rgba(c.BORDER_PRIMARY, 40)};
+}}
+
+QPushButton#vsBack {{
+    color: {c.TEXT_SECONDARY};
+    border: 1px solid {c.BORDER_DARK_BLUE};
+    border-radius: {s.RADIUS_MD}px;
+    padding: 5px 14px;
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+    background-color: transparent;
+}}
+QPushButton#vsBack:hover {{
+    color: {c.TEXT_NEON_CYAN};
+    border-color: {c.BORDER_PRIMARY};
+}}
+
+QLabel#vsTitle {{
+    color: {c.TEXT_NEON_GREEN};
+    font-family: {f.FAMILY_TITLE};
+    font-size: 14pt;
+    font-weight: bold;
+    background: transparent;
+}}
+
+QFrame#vsLive, QFrame#vsStatsPanel {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_CELL_TOP}, stop:1 {c.BG_CELL_BOTTOM});
+    border: 1px solid {c.BORDER_DARK_BLUE};
+    border-radius: {s.RADIUS_LG}px;
+}}
+
+QLabel#vsPanelTitle {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+    font-weight: bold;
+    background: transparent;
+}}
+
+QLabel#vsVideo {{
+    color: {c.TEXT_DIM};
+    background-color: {c.BG_DEEP};
+    border: 1px solid {c.BORDER_OFFLINE};
+    border-radius: {s.VIDEO_THUMB_CORN_RADIUS}px;
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+}}
+
+QLabel#vsStats {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    background: transparent;
+}}
+
+/* 检测结果面板：分类行 + H/L 徽章 + 闪烁 chips */
+QLabel#vsEmpty {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    background: transparent;
+}}
+
+QLabel#vsSectionTitle {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+    background: transparent;
+}}
+
+QWidget#vsRow {{
+    background-color: {c.BG_CELL_TOP};
+    border: 1px solid {c.BORDER_OFFLINE};
+    border-radius: {s.RADIUS_SM}px;
+}}
+
+QLabel#vsRowName {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.SM}pt;
+    background: transparent;
+}}
+
+QLabel#vsRowCount {{
+    color: {c.TEXT_NEON_GREEN};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.SM}pt;
+    font-weight: bold;
+    background: transparent;
+}}
+
+QLabel#vsBadge {{
+    color: {c.TEXT_DIM};
+    background-color: {c.BG_CELL_BOTTOM};
+    border: 1px solid {c.BORDER_OFFLINE};
+    border-radius: {s.RADIUS_SM}px;
+    padding: 0px 6px;
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    font-weight: bold;
+}}
+QLabel#vsBadge[vbadge="H"] {{
+    color: {c.BG_DEEP};
+    background-color: {c.TEXT_NEON_GREEN};
+    border-color: {c.TEXT_NEON_GREEN};
+}}
+QLabel#vsBadge[vbadge="H"][active="false"] {{
+    color: {c.TEXT_DIM};
+    background-color: transparent;
+    border-color: {c.BORDER_OFFLINE};
+}}
+QLabel#vsBadge[vbadge="L"][active="false"] {{
+    color: {c.TEXT_DIM};
+    background-color: transparent;
+    border-color: {c.BORDER_OFFLINE};
+}}
+
+QLabel#vsFlashChip {{
+    color: {c.TEXT_SECONDARY};
+    background-color: {c.BG_DEEP};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: {s.RADIUS_SM}px;
+    padding: 1px 6px;
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+}}
+"""

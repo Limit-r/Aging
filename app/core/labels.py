@@ -265,6 +265,44 @@ TOOLBAR_BTN_CLEAR_LABEL = "✕ 清空"
 TOOLBAR_SELECTION_TEMPLATE = "已选 {n}"
 
 
+# ---- 视频检测页（v3.0 视频检测）---------------------------------------------
+# 视频总览（位置标记页）
+VIDEO_OVERVIEW_TITLE = "📹 视频流监控  //  VIDEO STREAMS"
+VIDEO_OVERVIEW_HINT = "图表仅标记检测位点 · 双击单元进入该通道视频流检测"
+VIDEO_OVERVIEW_SUBTITLE_TEMPLATE = "{rows}×{cols} · {total} 路检测位点"
+CELL_HEADER_TEMPLATE = "CH-{cid:02d}"
+CELL_MARK_TEMPLATE = "位点 {cid}"
+CELL_OPEN_HINT = "双击进入检测"
+
+# 视频流检测页（单通道详情）
+VIDEO_STREAM_TITLE_TEMPLATE = "视频流检测  ·  CH-{cid:02d}"
+VIDEO_BACK_BTN = "◀ 返回总览"
+VIDEO_LIVE_TITLE = "实时检测画面"
+VIDEO_PANEL_EMPTY_HINT = "未导入视频\n请点击「导入视频」选择本地视频，再「开始」检测"
+VIDEO_PANEL_PLACEHOLDER = "检测画面区域"
+VIDEO_PANEL_LOADING = "模型加载中…"
+VIDEO_STATS_TITLE = "检测结果  ·  LED 亮灭"
+VIDEO_STATS_NONE = "尚未开始检测"
+VIDEO_COUNT_SECTION_TITLE = "识别结果 · 分类与亮灭"
+VIDEO_FLASH_SECTION_TITLE = "LED 闪烁计数"
+VIDEO_FLASH_TEMPLATE = "{lid} ×{n}"
+VBADGE_H = "H"
+VBADGE_L = "L"
+VIDEO_TOOLBAR_BTN_IMPORT = "📂 导入视频"
+VIDEO_TOOLBAR_BTN_START = "▶ 开始"
+VIDEO_TOOLBAR_BTN_STOP = "■ 停止"
+VIDEO_CELL_LOADING_TEXT = "加载模型…"
+VIDEO_CELL_STATE_RUNNING = "运行中"
+VIDEO_CELL_STATE_DONE = "检测完成"
+VIDEO_CELL_STATE_ERROR = "出错"
+VIDEO_CELL_NO_CLASS_TEMPLATE = "未检出目标"
+VIDEO_CELL_COUNT_TEMPLATE = "{name}: {n}"
+VIDEO_CELL_FLASH_TEMPLATE = "{lid}: {n}"
+VIDEO_CELL_LABEL_TOOLTIP = "LED 亮灭检测结果（H=亮 / L=灭）"
+VIDEO_IMPORT_DIALOG_TITLE = "选择要导入的视频"
+VIDEO_IMPORT_FILTER = "视频文件 (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.m4v *.mpg *.mpeg *.mts);;所有文件 (*)"
+
+
 # ---- 浮窗层（Phase 4-D）------------------------------------------------------
 # LED 状态矩阵浮窗标题
 LED_MATRIX_TITLE = "● 状态矩阵  //  STATUS MATRIX"

@@ -78,7 +78,8 @@ d:\Aging\
         ├── dialogs.py               # 通用确认对话框
         └── pages/
             ├── current_page.py      # 电流检测（9×8 + 选区 + 批量工具）✅
-            ├── video_page.py        # 视频检测（占位）⏳
+            ├── video_page.py        # 视频检测·总览（位点标记，双击进流页）✅
+            ├── video_stream_page.py # 视频流检测（单通道，常驻 worker 预加载模型）🚧
             ├── data_page.py         # 数据中心（占位）⏳
             ├── settings_page.py     # 系统设置（占位）⏳
             └── detail_page.py       # 单 channel 详情（双击 3D LED 进入）✅  v3.0 Phase 3
@@ -139,7 +140,10 @@ core  ←  data
 | [app/ui/dialogs.py](file:///d:/Aging/app/ui/dialogs.py) | 通用对话框 | `confirm_stop_running()` |
 | [app/ui/pages/current_page.py](file:///d:/Aging/app/ui/pages/current_page.py) | 电流检测 | `CurrentDetectionPage` |
 | [app/ui/pages/detail_page.py](file:///d:/Aging/app/ui/pages/detail_page.py) | 单 channel 详情（双击 3D LED 进入）| `DetailPage` |
-| [app/ui/pages/video_page.py](file:///d:/Aging/app/ui/pages/video_page.py) | 视频检测（占位） | `VideoDetectionPage` |
+| [app/ui/pages/video_page.py](file:///d:/Aging/app/ui/pages/video_page.py) | 视频检测·总览（位点标记，双击进流页） | `VideoOverviewPage` |
+| [app/ui/pages/video_stream_page.py](file:///d:/Aging/app/ui/pages/video_stream_page.py) | 视频流检测（单通道，常驻 worker 逐帧检测） | `VideoStreamPage`, `VsResultPanel` |
+| [ml/vision/worker.py](file:///d:/Aging/ml/vision/worker.py) | 常驻检测服务：预加载 YOLO+TinyConv，stdin 命令逐帧检测 | `main()` |
+| [ml/vision/engine.py](file:///d:/Aging/ml/vision/engine.py) | 统一检测引擎（YOLO 检测 + H/L 分类） | `DetectionEngine` |
 | [app/ui/pages/data_page.py](file:///d:/Aging/app/ui/pages/data_page.py) | 数据中心（占位） | `DataCenterPage` |
 | [app/ui/pages/settings_page.py](file:///d:/Aging/app/ui/pages/settings_page.py) | 系统设置（占位） | `SettingsPage` |
 

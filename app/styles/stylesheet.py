@@ -24,6 +24,7 @@ class StylesheetBuilder:
             T.batch_section(tokens),
             T.countdown(tokens),
             T.current_page(tokens),
+            T.video_page(tokens),
             T.nav_bar(tokens),
             T.floater(tokens),
             T.reset_view_button(tokens),

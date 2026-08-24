@@ -54,7 +54,8 @@ from app.ui.pages.current_page import CurrentDetectionPage
 from app.ui.pages.data_page import DataCenterPage
 from app.ui.pages.detail_page import DetailPage
 from app.ui.pages.settings_page import SettingsPage
-from app.ui.pages.video_page import VideoDetectionPage
+from app.ui.pages.video_page import VideoOverviewPage
+from app.ui.pages.video_stream_page import VideoStreamPage
 from app.ui.router import PageRouter
 
 
@@ -412,7 +413,10 @@ class HomePage(QMainWindow):
         )
         self._router.register("home", self._dashboard)
         self._router.register("current", self._current_page)
-        self._router.register("video", VideoDetectionPage())
+        self._video_page = VideoOverviewPage()
+        self._router.register("video", self._video_page)
+        self._video_stream_page = VideoStreamPage()
+        self._router.register("video_stream", self._video_stream_page)
         self._data_page = DataCenterPage()
         self._router.register("data", self._data_page)
         self._router.register("settings", SettingsPage())
@@ -421,6 +425,9 @@ class HomePage(QMainWindow):
         self._dashboard._on_open_detail_callback = self._on_open_detail
         self._detail_page.requested_back.connect(self._on_detail_back)
         self._detail_page.action_requested.connect(self._on_detail_action)
+        # 视频总览双击位点 → 切到视频流检测页
+        self._video_page.open_stream_requested.connect(self._on_open_video_stream)
+        self._video_stream_page.requested_back.connect(self._on_video_stream_back)
         root.addWidget(self._router, 1)
 
         # 3) 底部状态栏
@@ -521,6 +528,18 @@ class HomePage(QMainWindow):
         self._detail_page.set_channel(cid)
         self._router.navigate("detail")
         _log.info("home → detail: cid=%d", cid)
+
+    # -- 视频流检测页接线 -------------------------------
+    def _on_open_video_stream(self, cid: int) -> None:
+        """视频总览双击位点 → 切到视频流检测页。"""
+        self._video_stream_page.set_channel(cid)
+        self._router.navigate("video_stream")
+        _log.info("video overview → stream: cid=%d", cid)
+
+    def _on_video_stream_back(self) -> None:
+        """视频流检测页返回 → 回视频总览。"""
+        self._router.navigate("video")
+        _log.info("video stream → overview")
 
     def _on_detail_back(self) -> None:
         """详情页点"返回主页" → 路由回 home + 恢复 3D 旋转 + 恢复 azimuth。"""
