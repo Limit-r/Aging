@@ -7,7 +7,7 @@
 - GUI 只通过 QProcess 向 worker 写 stdin 命令、读 stdout 事件（JSON），
   **不向 GUI 进程引入 torch**。
 
-结果面板：实时检测画面 + 分类/亮灭/闪烁的卡片化展示。
+结果面板：实时检测画面 + VPL / CPL / PWR 三条闪烁折线图。
 """
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ import json
 import os
 import sys
 import tempfile
-from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
 
@@ -23,7 +22,7 @@ from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget,
 )
 
 import pyqtgraph as pg
@@ -40,17 +39,11 @@ WORKER_SCRIPT = PROJECT_ROOT / "ml" / "vision" / "worker.py"
 _log = get_logger("app.ui.pages.video_stream_page")
 
 
-def _repolish(widget: QWidget) -> None:
-    style = widget.style()
-    style.unpolish(widget)
-    style.polish(widget)
-
-
 class VsResultPanel(QWidget):
-    """检测结果面板：分类行 + 闪烁折线图 + LED 亮/灭时刻表。
+    """检测结果面板：VPL / CPL / PWR 三条闪烁折线图。"""
 
-    使用 keyed 复用避免每个采样全量重建导致闪烁；未出现的行隐藏。
-    """
+    # 三条折线记录的类别（按 LED 基础类聚合）
+    FLASH_CATS: tuple = ("VPL", "CPL", "PWR")
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -63,23 +56,14 @@ class VsResultPanel(QWidget):
         self._title.setObjectName("vsPanelTitle")
         lay.addWidget(self._title)
 
-        self._placeholder = QLabel(labels.VIDEO_STATS_NONE)
-        self._placeholder.setObjectName("vsEmpty")
-        self._placeholder.setAlignment(Qt.AlignCenter)
-        self._placeholder.setWordWrap(True)
-        lay.addWidget(self._placeholder, 1)
-
-        self._count_title = QLabel(labels.VIDEO_COUNT_SECTION_TITLE)
-        self._count_title.setObjectName("vsSectionTitle")
-        self._count_rows: "OrderedDict[str, tuple]" = OrderedDict()
-        self._rows_box = QVBoxLayout()
-        self._rows_box.setSpacing(4)
-
-        # 闪烁折线图（累计闪烁次数 / 检测秒）
         self._flash_title = QLabel(labels.VIDEO_FLASH_SECTION_TITLE)
         self._flash_title.setObjectName("vsSectionTitle")
         self._chart_title = QLabel(labels.VIDEO_FLASH_CHART_TITLE)
         self._chart_title.setObjectName("vsSectionTitle")
+        lay.addWidget(self._flash_title)
+        lay.addWidget(self._chart_title)
+
+        # 三路闪烁折线图（VPL / CPL / PWR）
         self._chart = pg.PlotWidget()
         self._chart.setObjectName("vsFlashChart")
         bg = _C.RACK_3D_BG
@@ -88,201 +72,75 @@ class VsResultPanel(QWidget):
         self._chart.showGrid(x=True, y=True, alpha=0.25)
         self._chart.setLabel("bottom", labels.VIDEO_FLASH_X_LABEL)
         self._chart.setLabel("left", labels.VIDEO_FLASH_Y_LABEL)
-        cyan = _C.LED_PAUSED
-        self._flash_curve = self._chart.plot(
-            pen=pg.mkPen((cyan[0], cyan[1], cyan[2]), width=2))
         self._chart.setFixedHeight(_S.VIDEO_CHART_H)
-        self._flash_series: list = []
+        self._chart.addLegend(offset=(6, 6))
+        colors = [_C.LED_PAUSED, _C.LED_RUNNING, _C.LED_WARNING]
+        self._curves: dict = {}
+        self._series: dict = {}
+        for i, cat in enumerate(self.FLASH_CATS):
+            c = colors[i]
+            self._curves[cat] = self._chart.plot(
+                pen=pg.mkPen((c[0], c[1], c[2]), width=2), name=cat)
+            self._series[cat] = []
         self._last_series_sec: int = -1
-
-        # LED 亮/灭时刻表
-        self._timing_title = QLabel(labels.VIDEO_TIMING_SECTION_TITLE)
-        self._timing_title.setObjectName("vsSectionTitle")
-        self._timing_scroll = QScrollArea()
-        self._timing_scroll.setObjectName("vsTimingScroll")
-        self._timing_scroll.setWidgetResizable(True)
-        self._timing_scroll.setFrameShape(QFrame.NoFrame)
-        self._timing_host = QWidget()
-        self._timing_host.setObjectName("vsTimingHost")
-        self._timing_grid = QVBoxLayout(self._timing_host)
-        self._timing_grid.setContentsMargins(0, 0, 0, 0)
-        self._timing_grid.setSpacing(2)
-        self._timing_scroll.setWidget(self._timing_host)
-        self._timing_rows: "OrderedDict[str, tuple]" = OrderedDict()
-
-        lay.addWidget(self._count_title)
-        lay.addLayout(self._rows_box)
-        lay.addWidget(self._flash_title)
-        lay.addWidget(self._chart_title)
         lay.addWidget(self._chart)
-        lay.addWidget(self._timing_title)
-        lay.addWidget(self._timing_scroll, 1)
-        lay.addStretch(0)
 
-    # -- 分类行 ---------------------------------------------------------
-    def _badge(self, kind: str) -> QLabel:
-        b = QLabel(kind)
-        b.setObjectName("vsBadge")
-        b.setProperty("vbadge", kind)
-        b.setAlignment(Qt.AlignCenter)
-        b.setFixedHeight(_S.VIDEO_BADGE_H)
-        _repolish(b)
-        return b
+        # 占位（未开始检测时显示）
+        self._placeholder = QLabel(labels.VIDEO_STATS_NONE)
+        self._placeholder.setObjectName("vsEmpty")
+        self._placeholder.setAlignment(Qt.AlignCenter)
+        self._placeholder.setWordWrap(True)
+        lay.addWidget(self._placeholder, 1)
 
-    def _make_row(self, name: str) -> None:
-        wrap = QWidget()
-        wrap.setObjectName("vsRow")
-        hl = QHBoxLayout(wrap)
-        hl.setContentsMargins(6, 3, 6, 3)
-        hl.setSpacing(8)
-        name_lb = QLabel(name)
-        name_lb.setObjectName("vsRowName")
-        count_lb = QLabel("0")
-        count_lb.setObjectName("vsRowCount")
-        h_badge = self._badge(labels.VBADGE_H)
-        l_badge = self._badge(labels.VBADGE_L)
-        hl.addWidget(name_lb)
-        hl.addStretch(1)
-        hl.addWidget(count_lb)
-        hl.addWidget(h_badge)
-        hl.addWidget(l_badge)
-        self._rows_box.addWidget(wrap)
-        self._count_rows[name] = (name_lb, count_lb, h_badge, l_badge)
+    @staticmethod
+    def _cat_of(led: str) -> str:
+        return led.split("_", 1)[0] if "_" in led else led
 
-    def _set_badge(self, lb: QLabel, kind: str, n: int) -> None:
-        lb.setText(f"{kind} {n}")
-        lb.setProperty("active", n > 0)
-        _repolish(lb)
-
-    def set_data(self, counts: dict, hl: dict, flashes: dict,
-                 sw: Optional[dict] = None,
-                 elapsed: Optional[float] = None) -> None:
-        """刷新分类 / 折线图 / 时刻表。
-
-        counts: {name:n}；hl: {name:{H,L}}；flashes: {led:n}；
-        sw: {led:{state,on,on_s,off_s,flashes}}；elapsed: 检测已运行秒数。
-        """
-        have = bool(counts) or bool(flashes) or bool(sw)
+    def set_data(self, flashes: dict, elapsed: Optional[float] = None) -> None:
+        """刷新三路闪烁折线图。flashes: {led:累计闪烁数}。"""
+        have = bool(flashes)
         self._placeholder.setVisible(not have)
-        self._title.setVisible(have)
-
-        names = sorted(counts.keys())
-        for name in names:
-            if name not in self._count_rows:
-                self._make_row(name)
-            row = self._count_rows[name]
-            h = hl.get(name, {"H": 0, "L": 0})
-            row[0].setText(name)
-            row[1].setText(str(counts[name]))
-            self._set_badge(row[2], labels.VBADGE_H, h.get("H", 0))
-            self._set_badge(row[3], labels.VBADGE_L, h.get("L", 0))
-            row[0].parentWidget().show()
-        for name, row in list(self._count_rows.items()):
-            if name not in names:
-                row[0].parentWidget().hide()
-        self._count_title.setVisible(bool(counts))
-
-        # 闪烁折线图
+        self._title.setVisible(True)
+        self._flash_title.setVisible(have)
+        self._chart_title.setVisible(have)
+        self._chart.setVisible(have)
         if flashes:
             self._update_chart(flashes, elapsed)
-            self._chart_title.show()
-            self._chart.show()
-        self._flash_title.setVisible(bool(flashes))
 
-        # LED 亮/灭时刻表
-        if sw:
-            self._update_timing(sw)
-
-    # -- 闪烁折线图 -----------------------------------------------------
     def _update_chart(self, flashes: dict, elapsed: Optional[float]) -> None:
-        total = sum(flashes.values())
         sec = int(elapsed) if elapsed is not None else 0
         if sec > self._last_series_sec:
             self._last_series_sec = sec
-            self._flash_series.append([elapsed, total])
-        if not self._flash_series:
-            return
-        xs = [p[0] for p in self._flash_series]
-        ys = [p[1] for p in self._flash_series]
-        self._flash_curve.setData(xs, ys)
-        self._chart.setXRange(0, max(xs[-1], 1) + 0.5, padding=0)
-        self._chart.setYRange(0, max(ys), padding=0.1)
-
-    # -- LED 亮/灭时刻表 -------------------------------------------------
-    def _make_timing_row(self, led: str) -> None:
-        wrap = QWidget()
-        wrap.setObjectName("vsTimingRow")
-        wrap.setMinimumHeight(_S.VIDEO_TIMING_ROW_H)
-        hl = QHBoxLayout(wrap)
-        hl.setContentsMargins(6, 0, 6, 0)
-        hl.setSpacing(8)
-        led_lb = QLabel(led)
-        led_lb.setObjectName("vsRowName")
-        state_badge = self._badge(labels.VBADGE_H)
-        on_lb = QLabel("")
-        on_lb.setObjectName("vsTimingStat")
-        on_lb.setAlignment(Qt.AlignCenter)
-        off_lb = QLabel("")
-        off_lb.setObjectName("vsTimingStat")
-        off_lb.setAlignment(Qt.AlignCenter)
-        flash_lb = QLabel("")
-        flash_lb.setObjectName("vsTimingFlash")
-        flash_lb.setAlignment(Qt.AlignRight)
-        hl.addWidget(led_lb)
-        hl.addWidget(state_badge)
-        hl.addStretch(1)
-        hl.addWidget(on_lb)
-        hl.addWidget(off_lb)
-        hl.addWidget(flash_lb)
-        self._timing_grid.addWidget(wrap)
-        self._timing_rows[led] = (wrap, state_badge, on_lb, off_lb, flash_lb)
-
-    def _update_timing(self, sw: dict) -> None:
-        seen = set()
-        for led, s in sorted(sw.items()):
-            seen.add(led)
-            if led not in self._timing_rows:
-                self._make_timing_row(led)
-            row = self._timing_rows[led]
-            st = s.get("state")
-            badge_text = labels.VBADGE_H if st == "H" else labels.VBADGE_L
-            row[1].setText(badge_text)
-            row[1].setProperty("vbadge", badge_text)
-            _repolish(row[1])
-            on = s.get("on")
-            row[2].setText(
-                labels.VIDEO_TIMING_ON_TEMPLATE.format(s=on)
-                if on is not None else labels.VIDEO_TIMING_ON_NONE)
-            row[3].setText(
-                labels.VIDEO_TIMING_OFF_TEMPLATE.format(s=s.get("off_s", 0)))
-            row[4].setText(
-                labels.VIDEO_TIMING_FLASH_TEMPLATE.format(n=s.get("flashes", 0)))
-            row[0].show()
-        for led, row in list(self._timing_rows.items()):
-            if led not in seen:
-                row[0].hide()
-        self._timing_title.setVisible(bool(sw))
+            for cat in self.FLASH_CATS:
+                total = sum(
+                    v for led, v in flashes.items() if self._cat_of(led) == cat)
+                self._series[cat].append([elapsed, total])
+        xmax = 0
+        ymax = 0
+        for cat in self.FLASH_CATS:
+            pts = self._series[cat]
+            if not pts:
+                continue
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            self._curves[cat].setData(xs, ys)
+            xmax = max(xmax, xs[-1])
+            ymax = max(ymax, max(ys))
+        if xmax > 0 or ymax > 0:
+            self._chart.setXRange(0, max(xmax, 1) + 0.5, padding=0)
+            self._chart.setYRange(0, max(ymax, 1), padding=0.1)
 
     def set_placeholder(self) -> None:
         self._placeholder.setText(labels.VIDEO_STATS_NONE)
         self._placeholder.show()
         self._title.show()
-        for name, row in self._count_rows.items():
-            row[0].parentWidget().hide()
-        self._count_title.hide()
-
-        # 清空折线图
-        self._flash_series.clear()
-        self._last_series_sec = -1
-        self._flash_curve.setData([], [])
         self._flash_title.hide()
         self._chart_title.hide()
         self._chart.hide()
-
-        # 清空时刻表
-        self._timing_title.hide()
-        for row in self._timing_rows.values():
-            row[0].hide()
+        self._series = {cat: [] for cat in self.FLASH_CATS}
+        self._last_series_sec = -1
+        for curve in self._curves.values():
+            curve.setData([], [])
 
     def set_message(self, msg: str) -> None:
         self.set_placeholder()
@@ -432,9 +290,7 @@ class VideoStreamPage(QWidget):
             self._finish_run()
         elif ptype == "sample" and payload.get("job") == self._cid:
             self._result.set_data(
-                payload.get("counts", {}), payload.get("hl", {}),
-                payload.get("flashes", {}), payload.get("sw"),
-                payload.get("elapsed"))
+                payload.get("flashes", {}), payload.get("elapsed"))
         elif ptype == "done" and payload.get("job") == self._cid:
             self._video.setText(labels.VIDEO_CELL_STATE_DONE)
             self._finish_run()
