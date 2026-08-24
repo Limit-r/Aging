@@ -306,7 +306,7 @@ class Sizing:
     VIDEO_CELL_MIN_W: int = 140        # 单元格最小宽
     VIDEO_CELL_MIN_H: int = 104        # 单元格最小高
     VIDEO_THUMB_CORN_RADIUS: int = 4   # 缩略图圆角（若需要）
-    VIDEO_CHART_H: int = 150            # 闪烁折线图高度
+    VIDEO_CHART_BLOCK_H: int = 130       # 每张系列折线图高度
 
     # ---- 数据标注 · 视频导入对话框 ------------------------------------------
     VIDEO_DIALOG_MARGIN: int = 16      # 对话框内边距

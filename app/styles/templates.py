@@ -1633,9 +1633,18 @@ QLabel#vsStats {{
     background: transparent;
 }}
 
-/* 检测结果面板：VPL / CPL / PWR 三条闪烁折线图 */
+/* 检测结果面板：FP / A / 其他 各系列闪烁折线图 */
 QWidget#vsResult {{
     background: transparent;
+}}
+
+QScrollArea#vsSeriesScroll {{
+    background-color: {c.BG_DEEP};
+    border: 1px solid {c.BORDER_OFFLINE};
+    border-radius: {s.RADIUS_SM}px;
+}}
+QWidget#vsSeriesHost {{
+    background-color: transparent;
 }}
 
 QLabel#vsEmpty {{

@@ -22,7 +22,7 @@ from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
-    QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 import pyqtgraph as pg
@@ -40,17 +40,21 @@ _log = get_logger("app.ui.pages.video_stream_page")
 
 
 class VsResultPanel(QWidget):
-    """检测结果面板：VPL / CPL / PWR 三条闪烁折线图。"""
+    """检测结果面板：按系列（FP / A / 其他）各独立一张闪烁折线图。
 
-    # 三条折线记录的类别（按 LED 基础类聚合）
-    FLASH_CATS: tuple = ("VPL", "CPL", "PWR")
+    area 类已在 worker 侧排除，仅统计信号灯（CPL/VPL 等）的闪烁；
+    系列自动区分：FP 系列 / A 系列 / 后续其他系列。
+    """
+
+    # 系列标识（自动区分；除 FP/A 外的其他系列归入 other）
+    SERIES_ORDER: tuple = ("FP", "A", "other")
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setObjectName("vsResult")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
+        lay.setSpacing(8)
 
         self._title = QLabel(labels.VIDEO_STATS_TITLE)
         self._title.setObjectName("vsPanelTitle")
@@ -58,52 +62,70 @@ class VsResultPanel(QWidget):
 
         self._flash_title = QLabel(labels.VIDEO_FLASH_SECTION_TITLE)
         self._flash_title.setObjectName("vsSectionTitle")
-        self._chart_title = QLabel(labels.VIDEO_FLASH_CHART_TITLE)
-        self._chart_title.setObjectName("vsSectionTitle")
         lay.addWidget(self._flash_title)
-        lay.addWidget(self._chart_title)
 
-        # 三路闪烁折线图（VPL / CPL / PWR）
-        self._chart = pg.PlotWidget()
-        self._chart.setObjectName("vsFlashChart")
-        bg = _C.RACK_3D_BG
-        self._chart.setBackground(
-            (bg[0] / 255.0, bg[1] / 255.0, bg[2] / 255.0))
-        self._chart.showGrid(x=True, y=True, alpha=0.25)
-        self._chart.setLabel("bottom", labels.VIDEO_FLASH_X_LABEL)
-        self._chart.setLabel("left", labels.VIDEO_FLASH_Y_LABEL)
-        self._chart.setFixedHeight(_S.VIDEO_CHART_H)
-        self._chart.addLegend(offset=(6, 6))
-        colors = [_C.LED_PAUSED, _C.LED_RUNNING, _C.LED_WARNING]
-        self._curves: dict = {}
+        # 系列滚动区：窗口高度不足时内部滚动，不再挤压窗口尺寸
+        self._scroll = QScrollArea()
+        self._scroll.setObjectName("vsSeriesScroll")
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.NoFrame)
+        self._host = QWidget()
+        self._host.setObjectName("vsSeriesHost")
+        self._blocks = QVBoxLayout(self._host)
+        self._blocks.setContentsMargins(0, 0, 0, 0)
+        self._blocks.setSpacing(10)
+        self._scroll.setWidget(self._host)
+
+        self._charts: dict = {}
         self._series: dict = {}
-        for i, cat in enumerate(self.FLASH_CATS):
-            c = colors[i]
-            self._curves[cat] = self._chart.plot(
-                pen=pg.mkPen((c[0], c[1], c[2]), width=2), name=cat)
-            self._series[cat] = []
-        self._last_series_sec: int = -1
-        lay.addWidget(self._chart)
+        palette = [_C.LED_PAUSED, _C.LED_RUNNING, _C.LED_WARNING]
+        for i, series in enumerate(self.SERIES_ORDER):
+            block = QWidget()
+            bv = QVBoxLayout(block)
+            bv.setContentsMargins(0, 0, 0, 0)
+            bv.setSpacing(4)
+            display = labels.VIDEO_SERIES_OTHER if series == "other" else series
+            stitle = QLabel(
+                labels.VIDEO_SERIES_TITLE_TEMPLATE.format(series=display))
+            stitle.setObjectName("vsSectionTitle")
+            plot = pg.PlotWidget()
+            plot.setObjectName("vsFlashChart")
+            bg = _C.RACK_3D_BG
+            plot.setBackground(
+                (bg[0] / 255.0, bg[1] / 255.0, bg[2] / 255.0))
+            plot.showGrid(x=True, y=True, alpha=0.25)
+            plot.setLabel("bottom", labels.VIDEO_FLASH_X_LABEL)
+            plot.setLabel("left", labels.VIDEO_FLASH_Y_LABEL)
+            plot.setFixedHeight(_S.VIDEO_CHART_BLOCK_H)
+            c = palette[i]
+            curve = plot.plot(pen=pg.mkPen((c[0], c[1], c[2]), width=2))
+            bv.addWidget(stitle)
+            bv.addWidget(plot)
+            self._blocks.addWidget(block)
+            self._charts[series] = (block, plot, curve)
+            self._series[series] = []
+        lay.addWidget(self._scroll, 1)
 
-        # 占位（未开始检测时显示）
         self._placeholder = QLabel(labels.VIDEO_STATS_NONE)
         self._placeholder.setObjectName("vsEmpty")
         self._placeholder.setAlignment(Qt.AlignCenter)
         self._placeholder.setWordWrap(True)
         lay.addWidget(self._placeholder, 1)
+        self._placeholder.hide()
+        self._last_series_sec: int = -1
 
     @staticmethod
-    def _cat_of(led: str) -> str:
-        return led.split("_", 1)[0] if "_" in led else led
+    def _series_of(led: str) -> str:
+        base = led.split("_", 1)[0]
+        return base if base in ("FP", "A") else "other"
 
     def set_data(self, flashes: dict, elapsed: Optional[float] = None) -> None:
-        """刷新三路闪烁折线图。flashes: {led:累计闪烁数}。"""
+        """刷新各系列折线图。flashes: {led:累计闪烁数}。"""
         have = bool(flashes)
         self._placeholder.setVisible(not have)
         self._title.setVisible(True)
         self._flash_title.setVisible(have)
-        self._chart_title.setVisible(have)
-        self._chart.setVisible(have)
+        self._scroll.setVisible(have)
         if flashes:
             self._update_chart(flashes, elapsed)
 
@@ -111,35 +133,30 @@ class VsResultPanel(QWidget):
         sec = int(elapsed) if elapsed is not None else 0
         if sec > self._last_series_sec:
             self._last_series_sec = sec
-            for cat in self.FLASH_CATS:
-                total = sum(
-                    v for led, v in flashes.items() if self._cat_of(led) == cat)
-                self._series[cat].append([elapsed, total])
-        xmax = 0
-        ymax = 0
-        for cat in self.FLASH_CATS:
-            pts = self._series[cat]
+            for series in self.SERIES_ORDER:
+                total = sum(v for led, v in flashes.items()
+                            if self._series_of(led) == series)
+                self._series[series].append([elapsed, total])
+        for series in self.SERIES_ORDER:
+            pts = self._series[series]
             if not pts:
                 continue
+            block, plot, curve = self._charts[series]
             xs = [p[0] for p in pts]
             ys = [p[1] for p in pts]
-            self._curves[cat].setData(xs, ys)
-            xmax = max(xmax, xs[-1])
-            ymax = max(ymax, max(ys))
-        if xmax > 0 or ymax > 0:
-            self._chart.setXRange(0, max(xmax, 1) + 0.5, padding=0)
-            self._chart.setYRange(0, max(ymax, 1), padding=0.1)
+            curve.setData(xs, ys)
+            plot.setXRange(0, max(xs[-1], 1) + 0.5, padding=0)
+            plot.setYRange(0, max(max(ys), 1), padding=0.1)
 
     def set_placeholder(self) -> None:
         self._placeholder.setText(labels.VIDEO_STATS_NONE)
         self._placeholder.show()
         self._title.show()
         self._flash_title.hide()
-        self._chart_title.hide()
-        self._chart.hide()
-        self._series = {cat: [] for cat in self.FLASH_CATS}
+        self._scroll.hide()
+        self._series = {s: [] for s in self.SERIES_ORDER}
         self._last_series_sec = -1
-        for curve in self._curves.values():
+        for block, plot, curve in self._charts.values():
             curve.setData([], [])
 
     def set_message(self, msg: str) -> None:
@@ -217,6 +234,8 @@ class VideoStreamPage(QWidget):
         self._video.setObjectName("vsVideo")
         self._video.setAlignment(Qt.AlignCenter)
         self._video.setWordWrap(True)
+        # Ignored 策略：让图像缩放跟随可用空间，防止图像 sizeHint 顶大窗口/预览区
+        self._video.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         lv.addWidget(self._video, 1)
         right = QFrame(self)
         right.setObjectName("vsStatsPanel")
