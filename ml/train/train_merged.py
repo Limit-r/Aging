@@ -58,6 +58,8 @@ def main():
                         help='覆盖模型尺寸 phi (n/s/m)')
     parser.add_argument('--model_path', default=None,
                         help='断点续训：指定完整 checkpoint (*_ckpt.pt) 路径，覆盖 model_path')
+    parser.add_argument('--qat', action='store_true',
+                        help='开启 QAT（量化感知训练，结构化部分量化，运行时强制关闭 fp16）')
     args = parser.parse_args()
 
     with open(args.config, encoding='utf-8') as f:
@@ -74,6 +76,10 @@ def main():
         cfg['phi'] = args.phi
     if args.model_path is not None:
         cfg['model_path'] = args.model_path
+    if args.qat:
+        cfg['qat'] = True
+        if cfg.get('fp16', False):
+            print('[QAT] CLI 开启 QAT，fp16 将在 train() 内强制关闭。')
 
     print('=' * 70)
     print('统一 YOLOv8 训练 (9 类: FP + A 合并)')
@@ -84,6 +90,7 @@ def main():
     print('  轮次     : %d -> %d' % (cfg['Init_Epoch'], cfg['UnFreeze_Epoch']))
     print('  批次     :', cfg['Unfreeze_batch_size'])
     print('  学习率   :', cfg['Init_lr'])
+    print('  QAT      :', '开启' if cfg.get('qat', False) else '关闭（FP32 常规训练）')
     print('  权重输出 :', cfg['save_dir'])
     print('=' * 70)
 

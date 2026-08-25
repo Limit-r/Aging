@@ -28,6 +28,7 @@ stdout 事件（每行一个 JSON，均含 "job"）::
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import time
@@ -47,7 +48,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import cv2  # noqa: E402
 
-from engine import DetectionEngine, is_background_class  # noqa: E402
+from engine import DEPLOY_DIR, DetectionEngine, is_background_class  # noqa: E402
+
+
+def _vision_backend() -> str:
+    """推理后端：优先环境变量 VISION_BACKEND；否则 auto（onnx 在即用 onnx）。"""
+    return os.environ.get("VISION_BACKEND", "auto")
+
 
 THUMB_WIDTH = 420
 # 缩略图目标帧率：GUI 以 VIDEO_REFRESH_MS 刷新即可，无需逐帧写盘；默认 ~4fps
@@ -547,7 +554,10 @@ def handle_monitor(cmd: dict) -> None:
             emit({"type": "error", "message": err})
             return
         _mon = mon
-    engine = DetectionEngine(input_shape=MONITOR_INPUT_SHAPE)
+    engine = DetectionEngine(input_shape=MONITOR_INPUT_SHAPE,
+                             backend=_vision_backend(),
+                             onnx_path=str(
+                                 DEPLOY_DIR / "yolo_ptq_int8_320_dyn.onnx"))
     threading.Thread(target=_monitor_loop, args=(engine,), daemon=True,
                      name="vision-monitor").start()
 
@@ -596,11 +606,12 @@ def main() -> int:
     # 预加载模型（阻塞在进入命令循环之前，模型加载完成后再处理 job 命令）
     emit({"type": "status", "message": "预加载检测模型…"})
     try:
-        engine = DetectionEngine()
+        engine = DetectionEngine(backend=_vision_backend())
     except FileNotFoundError as e:
         emit({"type": "fatal", "message": str(e)})
         return 1
-    emit({"type": "ready", "model": "yolo+tinyconv", "device": str(engine.device),
+    emit({"type": "ready", "model": f"yolo[{engine.backend}]+tinyconv",
+          "device": str(engine.device),
           "n_classes": engine.num_classes})
 
     # 启动帧批处理调度线程；命令由主线程读取

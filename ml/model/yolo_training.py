@@ -502,8 +502,9 @@ class ModelEMA:
     For EMA details see https://www.tensorflow.org/api_docs/python/tf/train/ExponentialMovingAverage
     """
 
-    def __init__(self, model, decay=0.9999, tau=2000, updates=0):
+    def __init__(self, model, decay=0.9999, tau=2000, updates=0, param_only=False):
         # Create EMA
+        self.param_only = param_only
         self.ema = deepcopy(de_parallel(model)).eval()  # FP32 EMA
         # if next(model.parameters()).device.type != 'cpu':
         #     self.ema.half()  # FP16 EMA
@@ -511,6 +512,10 @@ class ModelEMA:
         self.decay = lambda x: decay * (1 - math.exp(-x / tau))  # decay exponential ramp (to help early epochs)
         for p in self.ema.parameters():
             p.requires_grad_(False)
+        # QAT：EMA 只平滑可学习权重参数，跳过 fake-quant 观察器的 scale/zero_point/min_val 等 buffer
+        # （观察器统计须反映最新训练分布，不应被 EMA 平滑；且 per-channel/per-tensor 形状不同会广播崩溃）。
+        if param_only:
+            self._param_keys = {n for n, _ in de_parallel(model).named_parameters()}
 
     def update(self, model):
         # Update EMA parameters
@@ -520,6 +525,8 @@ class ModelEMA:
 
             msd = de_parallel(model).state_dict()  # model state_dict
             for k, v in self.ema.state_dict().items():
+                if self.param_only and k not in self._param_keys:
+                    continue
                 if v.dtype.is_floating_point:
                     v *= d
                     v += (1 - d) * msd[k].detach()

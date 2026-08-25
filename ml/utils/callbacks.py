@@ -61,12 +61,46 @@ class LossHistory():
         plt.cla()
         plt.close("all")
 
+class _FixedBatchNet(torch.nn.Module):
+    """把静态固定 batch 的模型（如 QAT 导出的 batch=2 GraphModule）包装成可接收任意 batch 输入。
+
+    QAT 用 torch.export 静态导出了 batch=2，而评估/推理通常喂 batch=1。这里统一在
+    前向时把输入 pad 到 target 再切片回原 batch 返回，便于评估代码无感复用。
+    """
+
+    def __init__(self, net, target_batch):
+        super().__init__()
+        self.net = net
+        self.target_batch = target_batch
+
+    def forward(self, x):
+        n = x.shape[0]
+        if n == self.target_batch or n == 0:
+            return self.net(x)
+        times = (self.target_batch + n - 1) // n
+        x_padded = x.repeat(times, 1, 1, 1)[: self.target_batch]
+        out = self.net(x_padded)
+
+        def _slice(o):
+            # 只切带 batch 维的输出。dbox/cls 是 [B,4,N]/[B,9,N]（dim=3）；
+            # anchors/strides 是 batch 无关的 [2,N]/[1,N]（dim=2），shape[0] 可能是 2
+            # 与 target_batch 撞车，故必须以 dim==3 判定，不能只看 shape[0]。
+            if isinstance(o, torch.Tensor) and o.dim() == 3 and o.shape[0] == self.target_batch:
+                return o[:n]
+            return o
+
+        if isinstance(out, (tuple, list)):
+            return [_slice(o) for o in out]
+        return _slice(out)
+
+
 class EvalCallback():
     def __init__(self, net, input_shape, class_names, num_classes, val_lines, log_dir, cuda, \
-            map_out_path=".temp_map_out", max_boxes=100, confidence=0.05, nms_iou=0.5, letterbox_image=True, MINOVERLAP=0.5, eval_flag=True, period=1, verbose=False):
+            map_out_path=".temp_map_out", max_boxes=100, confidence=0.05, nms_iou=0.5, letterbox_image=True, MINOVERLAP=0.5, eval_flag=True, period=1, verbose=False, fixed_batch=1):
         super(EvalCallback, self).__init__()
         
-        self.net                = net
+        self.net                = _FixedBatchNet(net, fixed_batch) if fixed_batch > 1 else net
+        self.fixed_batch        = fixed_batch
         self.input_shape        = input_shape
         self.class_names        = class_names
         self.num_classes        = num_classes
@@ -273,7 +307,7 @@ class EvalCallback():
 
     def on_epoch_end(self, epoch, model_eval):
         if epoch % self.period == 0 and self.eval_flag:
-            self.net = model_eval
+            self.net = _FixedBatchNet(model_eval, self.fixed_batch) if self.fixed_batch > 1 else model_eval
             if not os.path.exists(self.map_out_path):
                 os.makedirs(self.map_out_path)
             if not os.path.exists(os.path.join(self.map_out_path, "ground-truth")):

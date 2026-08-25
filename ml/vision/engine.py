@@ -42,9 +42,17 @@ def is_background_class(name: str) -> bool:
 
 
 def deployed_paths() -> dict:
-    """返回 ml/deploy/ 下的统一部署产物路径（5 键）。"""
+    """返回 ml/deploy/ 下的统一部署产物路径（7 键）。
+
+    - onnx    ：高精度动态 batch 版（512²，2100→5376 锚点），交互/视频检测用；
+    - onnx_mon：静默监控专用低输入版（320²，2100 锚点），54 路目标 216fps。
+    两者均由 dynamicize_onnx.py 从固定 batch=1 改写而来，`_onnx_decode` 可
+    单次批量前向。引擎按所选模型的实际 input_shape 自动构建 decodebox。
+    """
     return {
         "model": str(DEPLOY_DIR / "yolo_best_deploy.pt"),
+        "onnx": str(DEPLOY_DIR / "yolo_ptq_int8_dyn.onnx"),
+        "onnx_mon": str(DEPLOY_DIR / "yolo_ptq_int8_320_dyn.onnx"),
         "labels": str(DEPLOY_DIR / "label_merged.txt"),
         "classifier": str(DEPLOY_DIR / "tinyconv_best.pth"),
     }
@@ -63,6 +71,8 @@ class DetectionEngine:
         input_shape: tuple[int, int] = DEFAULT_INPUT_SHAPE,
         conf: float = DEFAULT_CONF,
         nms: float = DEFAULT_NMS,
+        backend: str = "auto",
+        onnx_path: str | None = None,
     ):
         # -- 延迟 import torch / 模型（本模块被 worker 进程引入时才加载）----
         import torch
@@ -72,31 +82,53 @@ class DetectionEngine:
         from utils.utils_bbox import DecodeBox
 
         paths = deployed_paths()
-        self._check_paths(paths)
 
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        if backend not in ("auto", "torch", "onnx"):
+            raise ValueError(f"未知推理后端: {backend!r}（可选 auto/torch/onnx）")
+        # 指定 onnx_path 时强制 onnx 后端（监控用 320 低输入模型）
+        if onnx_path:
+            backend = "onnx"
+        if backend == "auto":
+            backend = "onnx" if Path(paths["onnx"]).exists() else "torch"
+        self.backend = backend
+        self.onnx_path = onnx_path or paths["onnx"]
+
+        # 先读取类别清单（yolo/onnx 加载都需要 num_classes）
+        self.class_names, self.num_classes = get_classes(paths["labels"])
+        self.input_shape = tuple(input_shape)   # onnx 后端会在 _load_onnx 覆盖为固定尺寸
+        self.phi = phi
+        self.ort_session = None          # onnx 后端才激活
+        self.ort_in = None
+        self.ort_out: list[str] = []
+        self.yolo = None
+
+        # onnx 后端：YOLO 载体为 ORT；torch 后端：YoloBody。两者都要 classify。
+        if backend == "onnx":
+            self.device = torch.device("cpu")   # 实际由 _load_onnx 按 provider 覆盖
+            self._check_paths({**paths, "onnx": self.onnx_path}, backend)
+            self._load_onnx(self.onnx_path)
+        else:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self._check_paths(paths, backend)
+            self.yolo = self._load_yolo(
+                YoloBody, torch, paths["model"], self.num_classes, phi)
+
         self.conf = conf
         self.nms = nms
-        self.input_shape = tuple(input_shape)
-        self.phi = phi
-
-        self.class_names, self.num_classes = get_classes(paths["labels"])
-
-        self.yolo = self._load_yolo(
-            YoloBody, torch, paths["model"], self.num_classes, phi)
         self.decodebox = DecodeBox(
             num_classes=self.num_classes, input_shape=self.input_shape)
         self.classifier = self._load_classifier(TinyConv, torch, paths["classifier"])
 
     @staticmethod
-    def _check_paths(paths: dict) -> None:
-        missing = [v for v in paths.values() if not Path(v).exists()]
+    def _check_paths(paths: dict, backend: str) -> None:
+        # onnx 后端只需 onnx/labels/classifier；torch 后端无需 onnx
+        keys = ("model", "labels", "classifier") if backend == "torch" \
+            else ("onnx", "labels", "classifier")
+        missing = [k for k in keys if not Path(paths[k]).exists()]
         if missing:
             raise FileNotFoundError(
                 "模型缺失，请先训练并部署（deploy_models.py），缺少: "
-                + ", ".join(missing)
+                + ", ".join(paths[k] for k in missing)
             )
 
     def _load_yolo(self, YoloBody, torch, weights, num_classes, phi):
@@ -118,6 +150,83 @@ class DetectionEngine:
             model.load_state_dict(state)
         model = model.to(self.device).eval()
         return model
+
+    # ------------------------------------------------------------ ONNX 后端
+    def _load_onnx(self, onnx_path: str) -> None:
+        """以 ORT 加载 PTQ INT8 ONNX，优先 CUDA（借用 torch/lib 的 CUDA 运行库 DLL）。
+
+        - onnx 输入尺寸固定（PTQ 导出为 512²），据此覆盖 self.input_shape；
+        - 结果放在 self.ort_session；self.device 按实际生效的 provider 决定。
+        """
+        import os
+        import torch
+
+        # onnxruntime 的 CUDA EP 从系统 PATH/传统 NVIDIA 目录找 cublas/cudnn DLL，
+        # 而本机把它们装在 torch/lib。把该目录加进 DLL 搜索路径即可免装独立
+        # CUDA Toolkit 跑起 GPU 推理（无权限/无管理员也能用）。
+        tdir = os.path.join(os.path.dirname(torch.__file__), "lib")
+        if os.path.isdir(tdir):
+            try:
+                os.add_dll_directory(tdir)
+            except OSError:
+                pass
+        import onnxruntime as ort
+
+        so = ort.SessionOptions()
+        so.log_severity_level = 3
+        try:
+            sess = ort.InferenceSession(
+                onnx_path, so,
+                providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+        except Exception:
+            sess = ort.InferenceSession(
+                onnx_path, so, providers=["CPUExecutionProvider"])
+        self.ort_session = sess
+        self.ort_in = sess.get_inputs()[0].name
+        self.ort_out = [o.name for o in sess.get_outputs()] or ["dbox", "cls"]
+        inp_shape = sess.get_inputs()[0].shape
+        if len(inp_shape) == 4:
+            self.input_shape = (int(inp_shape[2]), int(inp_shape[3]))
+        self.device = torch.device(
+            "cuda" if "CUDAExecutionProvider" in sess.get_providers() else "cpu")
+        self.yolo = None
+
+    def _onnx_blob(self, frames_bgr) -> "np.ndarray":
+        """ONNX 专用预处理：letterbox + RGB + 灰边(128)，返回 [B,3,H,W] float32([0,1])。
+        （onnx 输入固定 batch/尺寸，单独实现，不经过 torch tensor，减少 host 往返）
+        """
+        import cv2
+        import numpy as np
+
+        hh, ww = self.input_shape
+        n = len(frames_bgr)
+        canvas = np.full((n, hh, ww, 3), 128, dtype="uint8")
+        for i, frame in enumerate(frames_bgr):
+            h, w = frame.shape[:2]
+            scale = min(hh / h, ww / w)
+            nw, nh = int(round(w * scale)), int(round(h * scale))
+            resized = cv2.resize(
+                cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (nw, nh),
+                interpolation=cv2.INTER_AREA)
+            top = (hh - nh) // 2
+            left = (ww - nw) // 2
+            canvas[i, top:top + nh, left:left + nw] = resized
+        arr = np.ascontiguousarray(np.transpose(canvas, (0, 3, 1, 2)))
+        return arr.astype("float32") / 255.0
+
+    def _onnx_decode(self, frames_bgr) -> "torch.Tensor":
+        """ONNX 后端批量解码：一次动态 batch `run` 整批 + decode_onnx_box。
+
+        Return
+        ------
+        torch.Tensor [B, 8400, num_classes+4]，与 torch 后端 `_decode_batch` 一致，
+        供 NMS/统计继续复用同一套后处理。
+        """
+        import numpy as np
+
+        dbox, cls = self.ort_session.run(
+            self.ort_out, {self.ort_in: self._onnx_blob(frames_bgr)})
+        return self.decodebox.decode_onnx_box([dbox, cls])
 
     @staticmethod
     def _floatify(container):
@@ -205,6 +314,15 @@ class DetectionEngine:
 
         h, w = frame_bgr.shape[:2]
         image_shape = np.array([h, w])
+
+        if self.ort_session is not None:
+            pred = self._onnx_decode([frame_bgr])
+            results = self.decodebox.non_max_suppression(
+                pred, self.num_classes, input_shape=self.input_shape,
+                image_shape=image_shape, letterbox_image=True,
+                conf_thres=self.conf, nms_thres=self.nms)
+            return self._to_dets(results, self.class_names)
+
         images = self._preprocess(frame_bgr)
 
         with torch.no_grad():
@@ -256,6 +374,9 @@ class DetectionEngine:
 
         if not frames_bgr:
             return None
+        if self.ort_session is not None:
+            # onnx batch=1：逐帧 run 后再拼批解码，供后续逐流 NMS
+            return self._onnx_decode(frames_bgr)  # [B, 8400, no]
         images = self._preprocess_batch(frames_bgr)
         with torch.no_grad():
             ctx = (torch.amp.autocast(device_type="cuda", dtype=torch.float16)

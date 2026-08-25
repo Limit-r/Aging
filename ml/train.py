@@ -83,6 +83,18 @@ def train(cfg):
     early_stop_metric   = cfg.get('early_stop_metric', 'val_loss')
     epoch_offset        = cfg.get('epoch_offset', 0)
 
+    # QAT（量化感知训练）开关：结构化部分量化（backbone/neck 卷积），DFL 保持 FP32
+    qat = cfg.get('qat', False)
+    if qat:
+        if fp16:
+            if not distributed:
+                print('[QAT] 检测到 fp16=True，QAT 强制关闭 FP16/Amp（fake-quant 需在 FP32 下训练）。')
+            fp16 = False
+        if Freeze_Train:
+            if not distributed:
+                print('[QAT] 检测到 Freeze_Train=True，QAT 图模块无 backbone 属性，强制关闭冻结阶段。')
+            Freeze_Train = False
+
     #==================================================#
     #                开始执行训练流程
     #==================================================#
@@ -161,6 +173,27 @@ def train(cfg):
     #   获得损失函数
     #----------------------#
     yolo_loss = Loss(model)
+
+    #----------------------#
+    #   QAT：将模型转换为量化感知训练形态
+    #   注意 Loss() 需基于原始模型（stride/no/reg_max 等静态属性），
+    #   因此必须在对 model 做 QAT 转换之前创建。
+    #----------------------#
+    if qat:
+        from train.qat_quantizer import prepare_qat
+        # QAT 转换需与示例输入同设备：prepare_qat 内部会先跑一次真实前向预热惰性缓存，
+        # 若不先把模型移到 cuda，CPU 权重 + cuda 输入会报 Input type mismatch。
+        if Cuda:
+            model = model.cuda()
+        # torch.export 静态导出会把 batch 固化为常量，示例输入 batch 必须与实际训练 batch
+        # 一致（训练 batch=2，否则 DFL 解码 view 元素数不符）。
+        qat_example_batch = Unfreeze_batch_size if not Freeze_Train else Freeze_batch_size
+        example_input = (torch.zeros(qat_example_batch, 3, *input_shape, device=device),)
+        model, qz = prepare_qat(model, example_input)
+        if local_rank == 0:
+            print(f'[QAT] 已转换为量化感知训练 GraphModule（标注卷积 {qz._n} 个，'
+                  f'backbone/neck 量化、DFL 解码保持 FP32）')
+
     #----------------------#
     #   记录Loss
     #----------------------#
@@ -180,7 +213,13 @@ def train(cfg):
     else:
         scaler = None
 
-    model_train = model.train()
+    if qat:
+        # QAT GraphModule 的 train() 被 allow_exported_model_train_eval 覆盖（不返回 self），
+        # 需先调用再单独引用模型本身。
+        model.train()
+        model_train = model
+    else:
+        model_train = model.train()
 
     #----------------------------#
     #   多卡同步Bn
@@ -195,15 +234,19 @@ def train(cfg):
             model_train = model_train.cuda(local_rank)
             model_train = torch.nn.parallel.DistributedDataParallel(model_train, device_ids=[local_rank], find_unused_parameters=True)
         else:
-            model_train = torch.nn.DataParallel(model)
-            cudnn.benchmark = True
-            cudnn.deterministic = False
-            model_train = model_train.cuda()
+            if qat:
+                # QAT GraphModule 为图级参数，经 DataParallel 封装存在传播风险，采用单卡训练
+                model_train = model_train.cuda()
+            else:
+                model_train = torch.nn.DataParallel(model)
+                cudnn.benchmark = True
+                cudnn.deterministic = False
+                model_train = model_train.cuda()
             
     #----------------------------#
     #   权值平滑
     #----------------------------#
-    ema = ModelEMA(model_train)
+    ema = ModelEMA(model_train, param_only=qat)
     
     #---------------------------#
     #   读取数据集对应的txt
@@ -254,15 +297,25 @@ def train(cfg):
         for k, v in model.named_modules():
             if hasattr(v, "bias") and isinstance(v.bias, nn.Parameter):
                 pg2.append(v.bias)
-            if isinstance(v, nn.BatchNorm2d) or "bn" in k:
+            # QAT GraphModule 中 BN 已被 fold，保留 *.bn 名称但无 weight（普通 Module），
+            # 需同时具备 weight 才归入 pg0，否则报 'Module' object has no attribute 'weight'。
+            if isinstance(v, nn.BatchNorm2d) or ("bn" in k and hasattr(v, "weight")):
                 pg0.append(v.weight)
             elif hasattr(v, "weight") and isinstance(v.weight, nn.Parameter):
                 pg1.append(v.weight)
-        optimizer = {
-            'adam': optim.Adam(pg0, Init_lr_fit, betas=(momentum, 0.999)),
-            'sgd': optim.SGD(pg0, Init_lr_fit, momentum=momentum, nesterov=True)
-        }[optimizer_type]
-        optimizer.add_param_group({"params": pg1, "weight_decay": weight_decay})
+        if pg0:
+            # 常规路径：BN 权重无 wd 作基组，卷积权重另组带 wd
+            optimizer = {
+                'adam': optim.Adam(pg0, Init_lr_fit, betas=(momentum, 0.999)),
+                'sgd': optim.SGD(pg0, Init_lr_fit, momentum=momentum, nesterov=True)
+            }[optimizer_type]
+            optimizer.add_param_group({"params": pg1, "weight_decay": weight_decay})
+        else:
+            # QAT 路径：BN 已 fold 进卷积、pg0 为空，卷积权重直接作基组并带 wd
+            optimizer = {
+                'adam': optim.Adam(pg1, Init_lr_fit, weight_decay=weight_decay, betas=(momentum, 0.999)),
+                'sgd': optim.SGD(pg1, Init_lr_fit, weight_decay=weight_decay, momentum=momentum, nesterov=True)
+            }[optimizer_type]
         optimizer.add_param_group({"params": pg2})
 
         lr_scheduler_func = get_lr_scheduler(lr_decay_type, Init_lr_fit, Min_lr_fit, UnFreeze_Epoch)
@@ -307,8 +360,11 @@ def train(cfg):
                              prefetch_factor=3 if num_workers > 0 else None)
 
         if local_rank == 0:
+            # QAT 的 GraphModule 经 torch.export 静态导出了固定 batch（=训练 batch），
+            # 评估用 batch=1 会因 DFL view 形状不符崩溃；传入 fixed_batch 触发 batch 适配包装。
             eval_callback = EvalCallback(model, input_shape, class_names, num_classes, val_lines, log_dir, Cuda,
-                                         eval_flag=eval_flag, period=eval_period, verbose=False)
+                                         eval_flag=eval_flag, period=eval_period, verbose=False,
+                                         fixed_batch=qat_example_batch if qat else 1)
         else:
             eval_callback = None
 
@@ -435,6 +491,7 @@ def train(cfg):
                 current_precision = 0
                 current_recall = 0
                 current_f1 = 0
+                map_improved = False
 
                 if (epoch + 1) % eval_period == 0 and hasattr(eval_callback, 'metrics') and eval_callback.metrics:
                     print_detailed_metrics(eval_callback.metrics)
@@ -461,7 +518,8 @@ def train(cfg):
                         print(f'\033[1;32m🎯 Epoch {epoch + 1}: F1-score improved from {best_f1:.4f} to {current_f1:.4f}!\033[0m')
                         best_f1 = current_f1
 
-                    if current_map > best_map:
+                    map_improved = current_map > best_map
+                    if map_improved:
                         print(f'\033[1;32m🏆 Epoch {epoch + 1}: mAP improved from {best_map:.4f} to {current_map:.4f}!\033[0m')
                         best_map = current_map
 
@@ -471,7 +529,7 @@ def train(cfg):
                     if early_stop_metric == 'mAP':
                         # mAP 仅在评估轮次更新，非评估轮跳过检查
                         if (epoch + 1) % eval_period == 0:
-                            improved = current_map > best_map
+                            improved = map_improved
                     else:
                         # 默认监控验证损失，越低越好
                         if fit_result['val_loss'] < best_val_loss:
