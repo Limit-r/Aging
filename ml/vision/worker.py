@@ -458,6 +458,7 @@ def _monitor_loop(engine) -> None:
         target_fps = mon["fps"]
 
         # 打开所有路视频
+        n_open = 0
         for j in jobs.values():
             cap = cv2.VideoCapture(j["path"])
             if not cap.isOpened():
@@ -472,7 +473,13 @@ def _monitor_loop(engine) -> None:
             rate = min(vfps, target_fps) if vfps > 0 else target_fps
             j["rate"] = rate
             j["t0"] = time.time()
-            j["next_t"] = time.time()
+            # 相位错峰：把各路首帧检测时间均布到一个目标周期内，避免启动时 54
+            # 路同时到期形成大 burst（54 帧检测+分类 ~260ms，超 250ms 周期）。
+            # 错峰后每轮只汇成周期内均匀散布的多个小 batch，调度节拍更平滑，
+            # 也降低单轮抢占 _infer_lock 的时长。
+            n_open += 1
+            stagger_period = j["period"] if j["period"] > 0 else 0.25
+            j["next_t"] = time.time() + n_open * (stagger_period / 54)
             # 去抖帧数按真实检测帧率折算（大约 0.3s 的 OFF 才判为一次完整亮暗）
             debounce = max(1, round(0.3 * rate))
             j["tracker"] = FlashTracker(debounce_frames=debounce)
