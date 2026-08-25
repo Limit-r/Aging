@@ -60,8 +60,8 @@ def main() -> int:
         debounce = max(1, round(0.3 * min(rate, FPS)))
         j["tracker"] = W.FlashTracker(debounce_frames=debounce)
         j["opened"] = True
-        # 相位错峰：把首帧检测时间均布到一个周期内，避免 54 路 simultaneity burst
-        j["next_t"] = time.time() + opened * (PERIOD / N_CH)
+        # 全同步首帧（靠 MONITOR_CHUNK 拆批），与 worker 保持一致
+        j["next_t"] = time.time()
         j["t0"] = time.time()
         opened += 1
     print(f"  opened={opened}/{N_CH}")
@@ -82,13 +82,15 @@ def main() -> int:
                 continue
             if now < j["next_t"]:
                 continue
+            if len(batch) >= W.MONITOR_CHUNK:
+                break   # 批次封顶，其余到点路下一迭代处理
             ret, frame = j["cap"].read()
             if not ret:
                 j["done"] = True
                 j["elapsed"] = time.time() - j["t0"]
                 continue
             j["frame"] += 1
-            j["next_t"] = now + PERIOD
+            j["next_t"] = j["t0"] + j["frame"] * PERIOD   # 锚定 t0 节奏，防相位漂移
             batch.append((j, frame))
             shapes.append([frame.shape[0], frame.shape[1]])
 

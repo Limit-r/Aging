@@ -74,6 +74,10 @@ MONITOR_MAX_STREAMS = 54           # 一次最多同时监控的设备视频路�
 MONITOR_WORKERS = 12               # 后处理并行线程数（≈ CPU 逻辑核）
 MONITOR_DEFAULT_FPS = 4.0          # 每路默认目标检测帧率（静默监控 2~5fps）
 MONITOR_INPUT_SHAPE = (320, 320)   # 静默监控用更低输入换取吞吐
+# 单次迭代 batch 上限（帧数）：54 路全同步到期时若一次塞满 54 帧大 batch，
+# 检测+分类约 258ms 会略超 250ms 周期。封顶为 27 帧子批次（约 130ms<周期），
+# 到点但未入本批的路推迟到下一迭代，既不丢吞吐（仍满批次产能）又平滑节拍。
+MONITOR_CHUNK = 27
 PALETTE = [
     (0, 191, 255), (16, 255, 161), (255, 174, 66),
     (167, 139, 250), (255, 59, 92), (0, 229, 255), (255, 255, 255),
@@ -458,7 +462,6 @@ def _monitor_loop(engine) -> None:
         target_fps = mon["fps"]
 
         # 打开所有路视频
-        n_open = 0
         for j in jobs.values():
             cap = cv2.VideoCapture(j["path"])
             if not cap.isOpened():
@@ -473,13 +476,10 @@ def _monitor_loop(engine) -> None:
             rate = min(vfps, target_fps) if vfps > 0 else target_fps
             j["rate"] = rate
             j["t0"] = time.time()
-            # 相位错峰：把各路首帧检测时间均布到一个目标周期内，避免启动时 54
-            # 路同时到期形成大 burst（54 帧检测+分类 ~260ms，超 250ms 周期）。
-            # 错峰后每轮只汇成周期内均匀散布的多个小 batch，调度节拍更平滑，
-            # 也降低单轮抢占 _infer_lock 的时长。
-            n_open += 1
-            stagger_period = j["period"] if j["period"] > 0 else 0.25
-            j["next_t"] = time.time() + n_open * (stagger_period / 54)
+            # 全同步首帧：让 54 路同相位到期，靠 MONITOR_CHUNK 封顶拆分批次。
+            # 相比细相位错峰（每路微小相位差会把 batch 拆散，吞吐从 209fps 掉到
+            # 135fps），同步 + 分批在保住满批次产能的同时，单次迭代 ≤~130ms。
+            j["next_t"] = time.time()
             # 去抖帧数按真实检测帧率折算（大约 0.3s 的 OFF 才判为一次完整亮暗）
             debounce = max(1, round(0.3 * rate))
             j["tracker"] = FlashTracker(debounce_frames=debounce)
@@ -496,6 +496,8 @@ def _monitor_loop(engine) -> None:
                     continue
                 if now < j["next_t"]:
                     continue
+                if len(batch) >= MONITOR_CHUNK:
+                    break   # 本迭代批次已满，其余到点路下一迭代再处理（不掉吞吐）
                 ret, frame = j["cap"].read()
                 if not ret:
                     if j["loop"]:
@@ -512,7 +514,9 @@ def _monitor_loop(engine) -> None:
                         j["elapsed"] = time.time() - j["t0"]
                         continue
                 j["frame"] += 1
-                j["next_t"] = now + j["period"]
+                # 锚定到 t0 的固定节奏（而非处理完成时刻），否则子批次在不同
+                # 墙钟时刻处理会让 54 路相位漂移、到期时间散开、batch 变小掉吞吐。
+                j["next_t"] = j["t0"] + j["frame"] * j["period"]
                 batch.append((j, frame))
                 shapes.append([frame.shape[0], frame.shape[1]])
 
