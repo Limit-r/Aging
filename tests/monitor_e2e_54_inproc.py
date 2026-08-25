@@ -8,8 +8,9 @@ FlashTracker/_assign_led_ids，输入为 6 个真实 .mp4（轮询分配到 54 �
 输出：真实持续帧率、调度节拍是否 < 周期(250ms@4fps)、各路播放完成/误差/闪烁。
 """
 import sys
+import threading
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ml" / "vision"))
@@ -61,8 +62,15 @@ def main() -> int:
         j["tracker"] = W.FlashTracker(debounce_frames=debounce)
         j["opened"] = True
         # 全同步首帧（靠 MONITOR_CHUNK 拆批），与 worker 保持一致
+        j["stop"] = threading.Event()
         j["next_t"] = time.time()
         j["t0"] = time.time()
+        # 预读管线：独立读帧线程（复用 worker._reader_loop/_pop_frame）
+        j["readq"] = deque()
+        j["cv"] = threading.Condition()
+        j["reader"] = threading.Thread(target=W._reader_loop,
+                                        args=(j,), daemon=True)
+        j["reader"].start()
         opened += 1
     print(f"  opened={opened}/{N_CH}")
 
@@ -84,11 +92,14 @@ def main() -> int:
                 continue
             if len(batch) >= W.MONITOR_CHUNK:
                 break   # 批次封顶，其余到点路下一迭代处理
-            ret, frame = j["cap"].read()
-            if not ret:
+            item = W._pop_frame(j)
+            if item is None:
+                continue            # 读帧线程尚未供帧，稍后再取
+            if item[0] == "eof":
                 j["done"] = True
                 j["elapsed"] = time.time() - j["t0"]
                 continue
+            frame = item[1]
             j["frame"] += 1
             j["next_t"] = j["t0"] + j["frame"] * PERIOD   # 锚定 t0 节奏，防相位漂移
             batch.append((j, frame))
@@ -114,7 +125,7 @@ def main() -> int:
                        for j in JOBS) or iters > 20000
         if all_done:
             break
-        time.sleep(0.002)
+        time.sleep(0.001)
 
     elapsed = time.time() - loop_start
 

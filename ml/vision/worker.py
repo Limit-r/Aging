@@ -60,8 +60,9 @@ THUMB_WIDTH = 420
 # 缩略图目标帧率：GUI 以 VIDEO_REFRESH_MS 刷新即可，无需逐帧写盘；默认 ~4fps
 THUMB_FPS = 4
 # 每流预读缓冲区容量（帧数）。读帧放在独立线程后台预取，调度线程不因
-# cap.read() 阻塞（对本地文件足够；为将来 RTSP/网络流准备）。
-READ_BUF_SIZE = 2
+# cap.read() 阻塞（对本地文件足够；为将来 RTSP/网络流准备）。调大可更早预取、
+# 把视频解码延迟并行隐藏到 GPU 推理之后，代价是内存占用略升。
+READ_BUF_SIZE = 3
 # 闪烁去抖：off→on 计为一次「完整亮暗」所需的最短连续 OFF 帧数。
 # 用于合并单帧检测抖动/微闪，让计数匹配物理闪烁；数值偏大易把快速闪烁
 # 合并掉，偏小则无法抑制抖动，需按视频帧率权衡（默认约 0.2s）。
@@ -484,10 +485,18 @@ def _monitor_loop(engine) -> None:
             debounce = max(1, round(0.3 * rate))
             j["tracker"] = FlashTracker(debounce_frames=debounce)
             j["opened"] = True
+            # 预读管线：独立读帧线程把解码藏在 GPU 推理背后（与监控主循环解耦）
+            j["readq"] = deque()
+            j["cv"] = threading.Condition()
+            j["stop"] = stop          # 与 monitor 共享退出信号
+            j["reader"] = threading.Thread(
+                target=_reader_loop, args=(j,), daemon=True)
+            j["reader"].start()
         emit({"type": "monitor_start",
               "count": sum(1 for j in jobs.values() if j["opened"]),
               "fps": target_fps, "input": list(MONITOR_INPUT_SHAPE)})
 
+        last_agg = 0.0
         while not stop.is_set():
             now = time.time()
             batch, shapes = [], []
@@ -498,21 +507,24 @@ def _monitor_loop(engine) -> None:
                     continue
                 if len(batch) >= MONITOR_CHUNK:
                     break   # 本迭代批次已满，其余到点路下一迭代再处理（不掉吞吐）
-                ret, frame = j["cap"].read()
-                if not ret:
+                item = _pop_frame(j)
+                if item is None:
+                    continue            # 读帧线程尚未供帧，稍后再取（未到点/未读）
+                if item[0] == "eof":
                     if j["loop"]:
-                        # 循环检测：短视频到 EOF 后回退到首帧，不标记完成
+                        # 循环检测：短视频 EOF 后回到首帧并重启读帧线程续跑
                         j["cap"].set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        ret, frame = j["cap"].read()
-                        if not ret:
-                            j["done"] = True
-                            j["elapsed"] = time.time() - j["t0"]
-                            continue
+                        j["readq"] = deque()
+                        j["cv"] = threading.Condition()
+                        j["reader"] = threading.Thread(
+                            target=_reader_loop, args=(j,), daemon=True)
+                        j["reader"].start()
                         j["loops"] += 1
                     else:
                         j["done"] = True
                         j["elapsed"] = time.time() - j["t0"]
-                        continue
+                    continue
+                frame = item[1]
                 j["frame"] += 1
                 # 锚定到 t0 的固定节奏（而非处理完成时刻），否则子批次在不同
                 # 墙钟时刻处理会让 54 路相位漂移、到期时间散开、batch 变小掉吞吐。
@@ -533,18 +545,30 @@ def _monitor_loop(engine) -> None:
                     samples = _assign_led_ids(dets, hl)
                     j["last"].update(samples)           # 抗漏检沿用旧值
                     j["tracker"].update(samples)
-                # 聚合（浅拷贝快照，避免并发读不一致）
-            with _mon_lock:
-                for j in jobs.values():
-                    j["elapsed"] = time.time() - j["t0"]
-                    j["flashes"] = dict(j["tracker"].flashes) \
-                        if j["tracker"] else {}
-            stop.wait(0.002 if worked else 0.015)
+                # 快照聚合不每轮做（遍历54路+dict拷贝有开销），按 ~0.25s 节流
+                if now - last_agg >= 0.25:
+                    with _mon_lock:
+                        for j in jobs.values():
+                            j["elapsed"] = time.time() - j["t0"]
+                            j["flashes"] = dict(j["tracker"].flashes) \
+                                if j["tracker"] else {}
+                    last_agg = now
+            stop.wait(0.001 if worked else 0.015)
     except Exception:
         traceback.print_exc()
     finally:
-        # 清理 cap 与状态
+        # 先停读帧线程再释放 cap，避免边读边释放导致崩溃
         if mon is not None:
+            mon["stop"].set()
+            for j in mon["jobs"].values():
+                cvx = j.get("cv")
+                if cvx is not None and j.get("reader") is not None:
+                    with cvx:
+                        cvx.notify_all()    # 唤醒阻塞在 wait 的读线程退出
+            for j in mon["jobs"].values():
+                rd = j.get("reader")
+                if rd is not None:
+                    rd.join(timeout=0.5)
             for j in mon["jobs"].values():
                 if j["cap"] is not None:
                     j["cap"].release()
