@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import sys
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -399,24 +398,23 @@ class DetectionEngine:
 
     def detect_batch_parallel(self, frames_bgr, shapes,
                               max_workers: int = 8) -> list[list[dict]]:
-        """批量检测，后处理（NMS/转 det）跨图并行，用于高并发静默监控。
+        """批量检测，后处理（NMS/转 det）逐图独立计算。
 
-        一次 `_decode_batch` 前向（GPU batch）后，把每图的 NMS/解码丢进线程池
-        并行计算——测得串行后处理是全流程主要耗时（可占 70%~90%），并行摊平。
+        一次 `_decode_batch` 前向（GPU batch）后，对每图执行 NMS/解码。
+        该后处理是**纯 Python CPU 段**（`non_max_suppression`），在 CPython 的
+        GIL 下无法真正并行——实测 `max_workers=12`(233ms) 反比串行(225ms) 慢，
+        故这里直接串行遍历，避免线程池创建/切换的开销与总线争用。
         与 `detect_batch` 结果一致（NMS 各图相互独立）。
 
         Parameters
         ----------
-        max_workers : int   并行线程数（建议 ≈ CPU 逻辑核数）
+        max_workers : int   保留该参数保持接口兼容，实际按串行执行。
         """
         prediction = self._decode_batch(frames_bgr)
         if prediction is None:
             return []
-        n = len(shapes)
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            return list(ex.map(self._nms_one,
-                               (prediction[i:i + 1] for i in range(n)),
-                               shapes))
+        return [self._nms_one(prediction[i:i + 1], s)
+                for i, s in enumerate(shapes)]
 
     # ------------------------------------------------------------ H/L 分类
     def classify(self, frame_bgr, dets) -> dict[int, tuple[str, float]]:

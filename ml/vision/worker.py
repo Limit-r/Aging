@@ -72,7 +72,7 @@ FLASH_DEBOUNCE_FRAMES = 8
 MAX_CONCURRENT_STREAMS = 2
 # ---- 54 路静默集中监控（monitor） ----
 MONITOR_MAX_STREAMS = 54           # 一次最多同时监控的设备视频路数
-MONITOR_WORKERS = 12               # 后处理并行线程数（≈ CPU 逻辑核）
+MONITOR_WORKERS = 12               # 保留（接口兼容量）；NMS 后处理现按串行执行（GIL 下线程池反更慢）
 MONITOR_DEFAULT_FPS = 4.0          # 每路默认目标检测帧率（静默监控 2~5fps）
 MONITOR_INPUT_SHAPE = (320, 320)   # 静默监控用更低输入换取吞吐
 # 单次迭代 batch 上限（帧数）：54 路全同步到期时若一次塞满 54 帧大 batch，
