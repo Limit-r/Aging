@@ -608,18 +608,21 @@ class HomePage(QMainWindow):
         self._refresh_hud_counts()
 
     def _on_aging_expired(self, cid: int) -> None:
-        """老化倒计时结束 → 对应通道高亮蓝灯闪烁。
+        """老化倒计时结束 → 对应通道高亮蓝灯闪烁 + 联动停止该通道视频检测。
 
-        逐通道联动两处：
+        逐通道联动三处：
         - 主页 3D 机柜 LED：从原状态切换为 AGING_DONE 蓝闪
         - 电流页对应 CH 卡片：DataCell 蓝色闪烁（500ms 亮/暗切换）
+        - 视频：老化测试完成即停止该通道的视频流检测（释放并发、结束会话）
         """
         try:
             self._dashboard.rack_view.set_aging_done(cid, True)
             cell = self._current_page._grid.cell(cid)
             if cell is not None:
                 cell.set_aging_done(True)
-            _log.info("aging expired: cid=%d → 主页LED + 电流卡片 蓝色闪烁", cid)
+            # 老化完成 → 停止该通道视频检测（worker 对未运行 job 幂等忽略）
+            self._current_page._sync_vision_stop([cid])
+            _log.info("aging expired: cid=%d → 主页LED + 电流卡片 蓝色闪烁 + 停止视频检测", cid)
         except Exception as e:  # noqa: BLE001  联动失败不阻断倒计时流程
             _log.error("_on_aging_expired failed (cid=%s): %r", cid, e, exc_info=True)
 

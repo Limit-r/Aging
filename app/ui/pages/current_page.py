@@ -301,6 +301,8 @@ class CurrentDetectionPage(QWidget):
         for cid in transitioned:
             self._countdown.start(cid, aging_seconds)
         self._sync_source_running()
+        # 电流启动 → 该通道若有已知视频源且非静默监控中，同步拉起视频流检测
+        self._sync_vision_start(list(transitioned))
         return transitioned
 
     def _stop_detection(self, cids) -> None:
@@ -396,8 +398,13 @@ class CurrentDetectionPage(QWidget):
         job 自动忽略，故无视频检测时调用是安全的（幂等）。
         """
         cmd = "pause" if action == "pause" else "resume"
+        from app.services.channel_video_registry import get_channel_video_registry
+        reg = get_channel_video_registry()
+        is_pause = action == "pause"
         wm = get_vision_worker()
         for cid in cids:
+            # 登记电流页暂停态：供之后新开的视频流/监控路继承该状态。
+            reg.set_paused(cid, is_pause)
             wm.send({"cmd": cmd, "job": cid})
         narrative.event(
             "current_vision_sync",
@@ -421,6 +428,35 @@ class CurrentDetectionPage(QWidget):
             channels=sorted(cids),
             note=f"电流检测 stop 已同步到 {len(cids)} 个通道的视频流检测",
         )
+
+    def _sync_vision_start(self, cids: list) -> list:
+        """把电流页的"启动"联动到视频流检测（单向：电流→视频，有路径且未检测才拉起）。
+
+        对每个 cid，若它在通道视频注册表中有已知视频源、且当前不在 54 路静默
+        监控中，则向全局视觉 worker 下发 interactive `detect` 拉起该通道的视频
+        检测。已在交互检测中的同 job 由 worker 幂等忽略，不重复开流。
+        """
+        from app.services.channel_video_registry import get_channel_video_registry
+        reg = get_channel_video_registry()
+        wm = get_vision_worker()
+        started = []
+        for cid in cids:
+            path = reg.auto_startable(cid)
+            if not path:
+                continue
+            # outdir 留空：电流自动拉起的检测无需缩略图（无页面观看），
+            # loop 循环播放以持续提供 LED 状态直至用户/老化完成停止。
+            wm.send({"cmd": "detect", "job": cid, "video": path,
+                     "outdir": "", "loop": True})
+            started.append(cid)
+        if started:
+            narrative.event(
+                "current_vision_sync",
+                action="start",
+                channels=sorted(started),
+                note=f"电流检测 start 已自动拉起 {len(started)} 个通道的视频流检测",
+            )
+        return started
 
     def _on_toolbar_action(self, action: str) -> None:
         cids = list(self._grid.selection())

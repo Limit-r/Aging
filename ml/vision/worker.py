@@ -233,7 +233,10 @@ def _new_stream(job: int, cmd: dict) -> dict:
         "thumb_step": 1, "thumb_scale": 1.0, "last_sec": -1, "last_thumb": 0,
         # 暂停：继续接收视频流数据，但不推理/不记录状态灯，
         # 暂停期间累计时长不计入 elapsed（视频侧单独计时随暂停冻结）
-        "paused": False, "paused_at": 0.0, "paused_total": 0.0,
+        # 支持开流即暂停态（cmd.paused 由电流页联动在开流时传入，避免
+        # 先暂停后开流时 pause 命令因流未 opened 而被丢弃的时序丢失）
+        "paused": bool(cmd.get("paused", False)), "paused_at": 0.0,
+        "paused_total": 0.0,
     }
 
 
@@ -459,6 +462,9 @@ def _monitor_open(cmd: dict):
             "done": False, "opened": False, "error": None,
             "loop": bool(cmd.get("loop", False)),
             "loops": 0,
+            # 按通道暂停：继续收帧但停止推理/统计（电流页联动）。
+            # 每路可携带初始暂停态（it.paused），使先暂停后开流也能正确继承。
+            "paused": bool(it.get("paused", False)),
             "tracker": None, "last": {}, "flashes": {}, "elapsed": 0.0,
         }
     return {"stop": threading.Event(), "conf": conf, "nms": nms,
@@ -477,8 +483,9 @@ def _monitor_as_snapshot(mon: dict) -> dict:
             "loops": j.get("loops", 0),
             "flashes": dict(j["flashes"]), "states": dict(j["last"]),
             "status": "done" if j["done"] else ("error" if j["error"]
-                                                else ("opened" if j["opened"]
-                                                      else "opening")),
+                                                else ("paused" if j["paused"]
+                                                      else ("opened" if j["opened"]
+                                                            else "opening"))),
             "error": j["error"],
         })
         if not j["done"] and not j["error"]:
@@ -539,6 +546,10 @@ def _monitor_loop(engine) -> None:
                 if j["done"] or j["error"] or not j["opened"] or stop.is_set():
                     continue
                 if now < j["next_t"]:
+                    continue
+                if j["paused"]:
+                    # 该通道暂停：读帧线程仍在持续供帧（视频保持获取），
+                    # 但不取帧、不推理、不更新状态灯统计。
                     continue
                 if len(batch) >= MONITOR_CHUNK:
                     break   # 本迭代批次已满，其余到点路下一迭代再处理（不掉吞吐）
@@ -675,54 +686,86 @@ def handle_stop(cmd: dict) -> None:
 def handle_pause(cmd: dict) -> None:
     """暂停某条视频流检测：继续接收视频流数据，但不再取帧推理/记录状态灯。
 
+    既支持交互检测流（_streams），也支持静默监控中的单路（_mon.jobs）。
     押上锁置 paused，读帧线程仍持续填充缓冲至上限后阻塞；恢复时统一丢弃。
     """
     job = int(cmd["job"])
+    # 1) 交互检测流
     with _streams_lock:
         s = _streams.get(job)
-    if s is None or s["done"] or s["stop"].is_set() or not s["opened"]:
+    if s is not None:
+        if s["done"] or s["stop"].is_set() or not s["opened"]:
+            return
+        s["paused"] = True
+        s["paused_at"] = time.time()
+        emit({"type": "paused", "job": job})
         return
-    s["paused"] = True
-    s["paused_at"] = time.time()
-    emit({"type": "paused", "job": job})
+    # 2) 静默监控中的某一路：按通道暂停（读帧线程继续供帧，不推理/不统计）
+    with _mon_lock:
+        mon = _mon
+    if mon is not None:
+        j = mon["jobs"].get(job)
+        if j is not None and not j["done"] and not j["error"]:
+            j["paused"] = True
+            emit({"type": "paused", "job": job})
 
 
 def handle_resume(cmd: dict) -> None:
     """恢复某条被暂停的视频流检测。
 
-    - 丢弃暂停期间读到的积压帧（不把这些停推画面的数据计入）；
-    - 重算 paused_total（暂停区间不计入 _active_elapsed）；
-    - 重置 next_t 让读帧线程即刻续供。
+    交互流：丢弃暂停期间积压帧、重算 paused_total、重置 next_t 即刻续供。
+    静默监控单路：把 time 刻度对齐到当前墙钟，避免暂停积压后在恢复瞬间抓到补帧。
     """
     job = int(cmd["job"])
+    # 1) 交互检测流
     with _streams_lock:
         s = _streams.get(job)
-    if s is None or not s["paused"]:
+    if s is not None:
+        if not s["paused"]:
+            return
+        now = time.time()
+        s["paused_total"] += now - s["paused_at"]
+        s["paused"] = False
+        s["paused_at"] = 0.0
+        s["next_t"] = now
+        if s["cap"] is not None:
+            reader = s.get("reader")
+            reader_alive = reader is not None and reader.is_alive()
+            if not reader_alive:
+                # 暂停期间读帧线程可能已因读数 EOF 退出（缓冲里只剩 EOF 哨兵）。
+                # 此时直接清空缓冲会把哨兵一起清掉：既无新帧可续跑、也不会再触发
+                # loop 重开，恢复后永久死等。这里回卷到首帧并重启读帧线程，
+                # 保证 loop 测试视频在恢复后持续续跑（非 loop 流未 EOF 时不会走到此）。
+                s["cap"].set(cv2.CAP_PROP_POS_FRAMES, 0)
+                s["readq"] = deque()
+                s["cv"] = threading.Condition()
+                s["reader"] = threading.Thread(
+                    target=_reader_loop, args=(s,), daemon=True)
+                s["reader"].start()
+            else:
+                with s["cv"]:
+                    s["readq"].clear()
+                    s["cv"].notify_all()
+        emit({"type": "resumed", "job": job})
         return
-    now = time.time()
-    s["paused_total"] += now - s["paused_at"]
-    s["paused"] = False
-    s["paused_at"] = 0.0
-    s["next_t"] = now
-    if s["cap"] is not None:
-        reader = s.get("reader")
-        reader_alive = reader is not None and reader.is_alive()
-        if not reader_alive:
-            # 暂停期间读帧线程可能已因读数 EOF 退出（缓冲里只剩 EOF 哨兵）。
-            # 此时直接清空缓冲会把哨兵一起清掉：既无新帧可续跑、也不会再触发
-            # loop 重开，恢复后永久死等。这里回卷到首帧并重启读帧线程，
-            # 保证 loop 测试视频在恢复后持续续跑（非 loop 流未 EOF 时不会走到此）。
-            s["cap"].set(cv2.CAP_PROP_POS_FRAMES, 0)
-            s["readq"] = deque()
-            s["cv"] = threading.Condition()
-            s["reader"] = threading.Thread(
-                target=_reader_loop, args=(s,), daemon=True)
-            s["reader"].start()
-        else:
-            with s["cv"]:
-                s["readq"].clear()
-                s["cv"].notify_all()
-    emit({"type": "resumed", "job": job})
+    # 2) 静默监控单路：对齐 time 标尺，避免暂停积压后瞬时补帧
+    with _mon_lock:
+        mon = _mon
+    if mon is not None:
+        j = mon["jobs"].get(job)
+        if j is not None and j["paused"]:
+            j["paused"] = False
+            now = time.time()
+            frame = int((now - j["t0"]) / j["period"]) if j["period"] > 0 else j["frame"]
+            j["frame"] = max(j["frame"], frame)
+            j["next_t"] = j["t0"] + j["frame"] * j["period"]
+            # 丢弃暂停期间积压的旧帧，避免恢复瞬间误处理停推画面
+            cv = j.get("cv")
+            if cv is not None:
+                with cv:
+                    j["readq"].clear()
+                    cv.notify_all()
+            emit({"type": "resumed", "job": job})
 
 
 def main() -> int:

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
@@ -20,9 +21,11 @@ from PyQt5.QtWidgets import (
 from app.core import config, labels
 from app.core.tokens import DEFAULT_TOKENS
 from app.observability import get_logger, narrative
+from app.services.channel_video_registry import get_channel_video_registry
 from app.ui.vision_worker import get_vision_worker
 
 _S = DEFAULT_TOKENS.sizing
+PROJECT_ROOT = Path(__file__).resolve().parents[2]   # d:\Aging
 _log = get_logger("app.ui.pages.video_page")
 
 
@@ -100,14 +103,54 @@ class VideoOverviewPage(QWidget):
         self._build_ui()
         self._set_hint(labels.MONITOR_IDLE_HINT)
         self._wire_worker()
+        self._auto_monitor_started = False
+        self._try_load_default_videos()
         narrative.event(
             "video_overview_init",
             note="v3.0 视频总览：位点标记网格（双击进入视频流检测 / 54 路静默监控）")
+
+    def showEvent(self, event) -> None:
+        """首次显示时默认进入静默检测（自动载入默认测试视频并开始监控，一次性）。"""
+        super().showEvent(event)
+        if (not self._auto_monitor_started and self._videos
+                and not self._monitoring and not self._mon_done):
+            self._auto_monitor_started = True
+            self._start_monitor()
 
     def _wire_worker(self) -> None:
         worker = get_vision_worker()
         worker.ensure_started()
         worker.job_event.connect(self._on_worker_event)
+
+    # ------------------------------------------------------------ 控制联动注册
+    def _sync_registry_paths(self) -> None:
+        """把当前 `_videos`（cid→路径）登记到通道视频注册表，供电流页联动读取。"""
+        reg = get_channel_video_registry()
+        for cid, path in self._videos.items():
+            reg.set_path(cid, path)
+
+    def _sync_registry_monitor(self, active: bool) -> None:
+        """登记/清除当前位点集在静默监控中的状态。"""
+        if not self._videos:
+            return
+        get_channel_video_registry().set_monitored(list(self._videos), active)
+
+    def _try_load_default_videos(self) -> None:
+        """无外部载入时，用 ``video/`` 下的默认测试视频作为静默检测默认源。
+
+        「默认进入静默检测」：进入视频检测页即自动载入（首路 CH-01，行序即通道），
+        上限 `config.MONITOR_MAX_VIDEOS`。载入后首次 `showEvent` 会自动开始监控。
+        """
+        vids = [str(p) for p in sorted(PROJECT_ROOT.glob("video/*.mp4"))]
+        if not vids:
+            return
+        if len(vids) > config.MONITOR_MAX_VIDEOS:
+            vids = vids[:config.MONITOR_MAX_VIDEOS]
+        self._videos = {cid: path for cid, path in enumerate(vids, start=1)}
+        self._sync_registry_paths()
+        self._start_btn.setEnabled(True)
+        self._set_hint(labels.MONITOR_DEFAULT_AUTO.format(n=len(self._videos)))
+        _log.info("video overview default source loaded: %d videos", len(vids))
 
     def _set_hint(self, text: str) -> None:
         if self._current_hint is not None:
@@ -131,6 +174,7 @@ class VideoOverviewPage(QWidget):
                 max=config.MONITOR_MAX_VIDEOS, n=len(files)))
             return
         self._videos = {cid: path for cid, path in enumerate(files, start=1)}
+        self._sync_registry_paths()
         self._start_btn.setEnabled(True)
         self._set_hint(labels.MONITOR_CHOOSE_DIALOG_TITLE.format(
             max=config.MONITOR_MAX_VIDEOS))
@@ -167,6 +211,7 @@ class VideoOverviewPage(QWidget):
         if not self._videos:
             self._set_hint(labels.MONITOR_MANIFEST_EMPTY)
             return
+        self._sync_registry_paths()
         self._choose_btn.setEnabled(False)
         self._start_btn.setEnabled(True)
         self._set_hint(labels.MONITOR_MANIFEST_LOADED.format(
@@ -179,11 +224,13 @@ class VideoOverviewPage(QWidget):
             return
         worker = get_vision_worker()
         worker.ensure_started()
-        jobs = [{"job": cid, "video": path}
+        reg = get_channel_video_registry()
+        jobs = [{"job": cid, "video": path, "paused": reg.is_paused(cid)}
                 for cid, path in self._videos.items()]
         worker.send({"cmd": "monitor", "jobs": jobs, "loop": True})
         self._monitoring = True
         self._mon_done = False
+        self._sync_registry_monitor(True)
         self._set_controls(True)
         self._set_hint(labels.MONITOR_RUNNING_HINT.format(
             count=len(jobs), fps=config.MONITOR_FPS,
@@ -197,6 +244,7 @@ class VideoOverviewPage(QWidget):
 
     def _stop_monitor(self) -> None:
         get_vision_worker().send({"cmd": "monitor_stop"})
+        self._sync_registry_monitor(False)
         self._set_controls(False)
         self._set_hint(labels.MONITOR_IDLE_HINT)
 
@@ -222,6 +270,10 @@ class VideoOverviewPage(QWidget):
                 text = labels.CELL_MONITOR_ERROR + " " + (s.get("error") or "")
             elif status == "opening":
                 text = labels.CELL_MONITOR_OPENING
+            elif status == "paused":   # 该路被暂停（电流页联动暂停时可见）
+                n = sum(s.get("flashes", {}).values())
+                text = labels.CELL_MONITOR_PAUSED.format(
+                    n=n, loops=s.get("loops", 0))
             else:  # running / opened
                 n = sum(s.get("flashes", {}).values())
                 text = labels.CELL_MONITOR_LOOP_TEMPLATE.format(
@@ -234,6 +286,7 @@ class VideoOverviewPage(QWidget):
         self._monitoring = False
         self._mon_done = True
         self._poll.stop()
+        self._sync_registry_monitor(False)
         self._set_controls(False)
         self._set_hint(labels.MONITOR_DONE)
 
@@ -258,6 +311,7 @@ class VideoOverviewPage(QWidget):
         if self._monitoring or self._poll.isActive():
             self._poll.stop()
         get_vision_worker().send({"cmd": "monitor_stop"})
+        self._sync_registry_monitor(False)
         for cell in self._cells.values():
             cell.clear_monitor()
 

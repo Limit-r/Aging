@@ -37,6 +37,7 @@ import pyqtgraph as pg
 from app.core import labels
 from app.core.tokens import DEFAULT_TOKENS
 from app.observability import get_logger, narrative
+from app.services.channel_video_registry import get_channel_video_registry
 from app.ui.vision_worker import get_vision_worker
 
 _S = DEFAULT_TOKENS.sizing
@@ -484,6 +485,8 @@ class VideoStreamPage(QWidget):
         self._video.setText(os.path.basename(path))
         self._result._reset()
         self._btn_start.setEnabled(True)
+        if self._cid is not None:
+            get_channel_video_registry().set_path(self._cid, path)
 
     def _on_start(self) -> None:
         if self._video_path is None or self._cid is None or self._running:
@@ -493,11 +496,12 @@ class VideoStreamPage(QWidget):
         self._btn_start.setEnabled(False)
         self._btn_stop.setEnabled(True)
         self._running = True
-        self._paused = False
+        self._paused = get_channel_video_registry().is_paused(self._cid)
         self._refresh_pause_ui()
         self._wm.send({"cmd": "detect", "job": self._cid,
                        "video": self._video_path, "outdir": str(self._outdir),
-                       "loop": True})
+                       "loop": True,
+                       "paused": self._paused})
         self._refresh_timer.start()
         narrative.event(
             "video_stream_start", note=f"CH-{self._cid:02d} 循环检测启动")
@@ -588,6 +592,7 @@ class VideoStreamPage(QWidget):
             self._video.setText(os.path.basename(video_path))
             self._result._reset()
             self._btn_start.setEnabled(True)
+            get_channel_video_registry().set_path(cid, video_path)
             _log.info("video stream set channel CH-%02d (带路径，直启)", cid)
             self._btn_start.click()   # 自动开始实时检测
             return
