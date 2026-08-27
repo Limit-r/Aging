@@ -178,20 +178,25 @@ class VideoOverviewPage(QWidget):
         get_channel_video_registry().set_monitored(list(self._videos), active)
 
     def _try_load_default_videos(self) -> None:
-        """无外部载入时，用 ``video/`` 下的默认测试视频作为静默检测默认源。
+        """载入 ``video/`` 下的默认测试视频作为视频检测源，并循环复用到全部位点。
 
-        「默认进入静默检测」：进入视频检测页即自动载入（首路 CH-01，行序即通道），
-        上限 `config.MONITOR_MAX_VIDEOS`。载入后首次 `showEvent` 会自动开始监控。
+        源视频较少时按 `video[(cid-1) % n]` 循环映射到所有网格通道，使「电流全开
+        → 视频全开」复用同一批素材即可做性能测试；每个通道按需读文件（当前只登记
+        路径，是否真正检测仍由电流页「运行通道」驱动，见 `_sync_vision_start`）。
         """
         vids = [str(p) for p in sorted(PROJECT_ROOT.glob("video/*.mp4"))]
         if not vids:
+            self._set_hint(labels.MONITOR_NO_SOURCE_HINT)
             return
-        if len(vids) > config.MONITOR_MAX_VIDEOS:
-            vids = vids[:config.MONITOR_MAX_VIDEOS]
-        self._videos = {cid: path for cid, path in enumerate(vids, start=1)}
+        total = config.GRID_ROWS * config.GRID_COLS
+        self._videos = {
+            cid: vids[(cid - 1) % len(vids)]
+            for cid in range(1, total + 1)
+        }
         self._sync_registry_paths()
-        self._set_hint(labels.MONITOR_DEFAULT_AUTO.format(n=len(self._videos)))
-        _log.info("video overview default source loaded: %d videos", len(vids))
+        self._set_hint(labels.MONITOR_DEFAULT_AUTO.format(n=len(vids)))
+        _log.info("video overview default source reused: %d videos over %d channels",
+                  len(vids), total)
 
     def _set_hint(self, text: str) -> None:
         if self._current_hint is not None:
@@ -302,16 +307,22 @@ class VideoOverviewPage(QWidget):
         pass
 
     def _poll_tick(self) -> None:
+        # 以「电流运行集合」+「视频映射」直接驱动总览格状态，电流一启动即显示
+        # 「运行中」，不依赖 monitor 快照是否已有闪烁数据（那些影响是否显示闪数）。
         self._refresh_overview()
 
     def _refresh_overview(self) -> None:
-        """按「电流运行集合」+「视频映射」刷新总览格状态，明确提示哪台设备在运行。
+        """轮询刷新总览：明确提示哪台设备正在运行检测。
 
-        视频检测由电流驱动：电流运行且该通道有视频源 →「运行中」；有源但电流未
-        运行 →「待机」；无视频源 →「无源」。KPI 的 running 即「正在检测的设备数」。
+        由电流运行集合决定显示状态（后台是否在检测由 `_sync_vision_follow`
+        跟随电流自动维护）：电流运行且该通道有视频源 →「运行中」；有源但电流
+        未运行 →「待机」；无视频源 →「无源」。KPI 的 running 即正在检测的路数。
         """
-        reg = get_channel_video_registry()
-        running = standby = source = 0
+        try:
+            reg = get_channel_video_registry()
+        except Exception:
+            return
+        running = 0
         for cid in range(1, self._total + 1):
             cell = self._cells.get(cid)
             if cell is None:
@@ -325,12 +336,9 @@ class VideoOverviewPage(QWidget):
             elif has:
                 cell.set_monitor(labels.VIDEO_CELL_STANDBY)
                 cell.set_status("idle")
-                standby += 1
             else:
                 cell.set_monitor(labels.VIDEO_CELL_NO_SOURCE)
                 cell.set_status("idle")
-            if has:
-                source += 1
         self._update_kpi(running=running, paused=0, error=0, total=self._total)
 
     def _apply_snapshot(self, streams: list[dict], done: bool) -> None:

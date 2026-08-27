@@ -301,8 +301,8 @@ class CurrentDetectionPage(QWidget):
         for cid in transitioned:
             self._countdown.start(cid, aging_seconds)
         self._sync_source_running()
-        # 电流启动 → 该通道若有已知视频源且非静默监控中，同步拉起视频流检测
-        self._sync_vision_start(list(transitioned))
+        # 视频检测由 `_sync_vision_follow`（在 _sync_source_running 内）按电流
+        # 运行集合统一跟随监控，无需在此单独拉起。
         return transitioned
 
     def _stop_detection(self, cids) -> None:
@@ -313,8 +313,7 @@ class CurrentDetectionPage(QWidget):
             self._detector.reset(cid)
         if transitioned:
             self._sync_source_running()
-            # 电流停止 → 同步停止对应通道的视频流检测（单向：电流→视频）
-            self._sync_vision_stop(list(transitioned))
+            # 停止同样由 _sync_vision_follow 按电流运行集合在监控中移除该通道。
         return transitioned
 
     def _sync_source_running(self) -> None:
@@ -330,6 +329,8 @@ class CurrentDetectionPage(QWidget):
         self._source.set_running(sorted(new_running))
         from app.services.channel_video_registry import get_channel_video_registry
         get_channel_video_registry().set_current_running(list(new_running))
+        # 电流运行集合作为「视频检测的唯一事实源」，动态跟随到静默监控 monitor
+        self._sync_vision_follow()
 
     def _on_auto_triggered(self, cid: int) -> None:
         """检测到稳定电流：若该 CH 仍为停止态，则自动开始检测 + 倒计时。"""
@@ -420,49 +421,69 @@ class CurrentDetectionPage(QWidget):
         )
 
     def _sync_vision_stop(self, cids: list) -> None:
-        """把电流页的停止同步到对应的视频流检测（单向：电流→视频）。
+        """把电流页的停止同步到监控：从 54 路静默监控中移除这些通道（单向：电流→视频）。
 
-        对每个停止的 cid，向全局视觉 worker 下发 stop，使该通道若正在做
-        视频流检测时也同步停止。worker 对不存在/已结束的 job 忽略，幂等安全。
+        通常由 `_sync_vision_follow` 全量跟随即可；此方法保留入口，供老化完成等
+        路径即时移除单/多路；worker 对不存在的路幂等忽略。
         """
-        wm = get_vision_worker()
-        for cid in cids:
-            wm.send({"cmd": "stop", "job": cid})
+        rm = [int(c) for c in (cids or [])]
+        if not rm:
+            return
+        get_vision_worker().send({"cmd": "monitor_sync", "remove": rm})
+        if hasattr(self, "_mon_active"):
+            self._mon_active.difference_update(rm)
         narrative.event(
             "current_vision_sync",
             action="stop",
-            channels=sorted(cids),
-            note=f"电流检测 stop 已同步到 {len(cids)} 个通道的视频流检测",
+            channels=sorted(rm),
+            note=f"电流检测 stop 已从静默监控移除 {len(rm)} 个通道",
         )
 
     def _sync_vision_start(self, cids: list) -> list:
-        """把电流页的"启动"联动到视频流检测（单向：电流→视频，有路径且未检测才拉起）。
+        """(保留接口) 视频检测由 `_sync_vision_follow` 动态跟随电流集合，本方法不再单独拉起。"""
+        return []
 
-        对每个 cid，若它在通道视频注册表中有已知视频源、且当前不在 54 路静默
-        监控中，则向全局视觉 worker 下发 interactive `detect` 拉起该通道的视频
-        检测。已在交互检测中的同 job 由 worker 幂等忽略，不重复开流。
+    def _sync_vision_follow(self) -> None:
+        """把「电流运行集合」同步为 54 路静默监控 monitor 的通道集合（动态跟随）。
+
+        电流启动/停止/暂停都经 `_sync_source_running`，本方法据此全量对齐监控：
+        取 `current_running_cids()` 中「有视频源」的通道；首次建立用 `monitor`
+        全量开，之后用 `monitor_sync` 增量增删（保各路统计持续）。超出 54 路上限
+        的通道因硬件限制不监控。
         """
+        if not hasattr(self, "_mon_active"):
+            self._mon_active = set()
+            self._mon_started = False
         from app.services.channel_video_registry import get_channel_video_registry
         reg = get_channel_video_registry()
+        current = {c for c in reg.current_running_cids() if reg.path(c)}
+        if len(current) > 54:
+            current = set(sorted(current)[:54])
         wm = get_vision_worker()
-        started = []
-        for cid in cids:
-            path = reg.auto_startable(cid)
-            if not path:
-                continue
-            # outdir 留空：电流自动拉起的检测无需缩略图（无页面观看），
-            # loop 循环播放以持续提供 LED 状态直至用户/老化完成停止。
-            wm.send({"cmd": "detect", "job": cid, "video": path,
-                     "outdir": "", "loop": True})
-            started.append(cid)
-        if started:
-            narrative.event(
-                "current_vision_sync",
-                action="start",
-                channels=sorted(started),
-                note=f"电流检测 start 已自动拉起 {len(started)} 个通道的视频流检测",
-            )
-        return started
+        if self._mon_started and not current:
+            wm.send({"cmd": "monitor_stop"})
+            self._mon_active.clear()
+            self._mon_started = False
+            return
+        if not self._mon_started and current:
+            jobs = [{"job": c, "video": reg.path(c), "paused": reg.is_paused(c)}
+                    for c in sorted(current)]
+            # monitor 默认 4fps、320×320、GPU 批量（见 worker），适应 54 路级静默检测
+            wm.send({"cmd": "monitor", "jobs": jobs, "loop": True, "fps": 4.0})
+            self._mon_active = set(current)
+            self._mon_started = True
+            return
+        if self._mon_started:
+            rem = self._mon_active - current
+            add = current - self._mon_active
+            if rem:
+                wm.send({"cmd": "monitor_sync", "remove": sorted(rem)})
+            if add:
+                wm.send({"cmd": "monitor_sync",
+                         "add": [{"job": c, "video": reg.path(c),
+                                  "paused": reg.is_paused(c)}
+                                 for c in sorted(add)]})
+            self._mon_active = set(current)
 
     def _on_toolbar_action(self, action: str) -> None:
         cids = list(self._grid.selection())

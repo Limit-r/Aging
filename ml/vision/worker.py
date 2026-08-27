@@ -507,12 +507,18 @@ def _monitor_loop(engine) -> None:
         jobs = mon["jobs"]
         target_fps = mon["fps"]
 
-        # 打开所有路视频
-        for j in jobs.values():
+        # 打开所有路视频（含 monitor_sync 后续新增、尚未 opened 的路，幂等补开）
+        def _snap() -> list:
+            # 遍历前先取快照，避免主线程动态增删 jobs 时触发 RuntimeError
+            return list(jobs.values())
+
+        def _open_pending(j: dict) -> None:
+            if j.get("opened") or j.get("error"):
+                return
             cap = cv2.VideoCapture(j["path"])
             if not cap.isOpened():
                 j["error"] = "无法打开视频: " + j["path"]
-                continue
+                return
             vfps = cap.get(cv2.CAP_PROP_FPS) or 30.0
             W, H = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), \
                    int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -522,11 +528,8 @@ def _monitor_loop(engine) -> None:
             rate = min(vfps, target_fps) if vfps > 0 else target_fps
             j["rate"] = rate
             j["t0"] = time.time()
-            # 全同步首帧：让 54 路同相位到期，靠 MONITOR_CHUNK 封顶拆分批次。
-            # 相比细相位错峰（每路微小相位差会把 batch 拆散，吞吐从 209fps 掉到
-            # 135fps），同步 + 分批在保住满批次产能的同时，单次迭代 ≤~130ms。
+            # 同一帧相位，靠 MONITOR_CHUNK 封顶拆分批次避免 batch 散列。
             j["next_t"] = time.time()
-            # 去抖帧数按真实检测帧率折算（大约 0.3s 的 OFF 才判为一次完整亮暗）
             debounce = max(1, round(0.3 * rate))
             j["tracker"] = FlashTracker(debounce_frames=debounce)
             j["opened"] = True
@@ -537,15 +540,23 @@ def _monitor_loop(engine) -> None:
             j["reader"] = threading.Thread(
                 target=_reader_loop, args=(j,), daemon=True)
             j["reader"].start()
-        emit({"type": "monitor_start",
-              "count": sum(1 for j in jobs.values() if j["opened"]),
-              "fps": target_fps, "input": list(MONITOR_INPUT_SHAPE)})
 
+        for j in _snap():
+            _open_pending(j)
+        open_broadcast = True
         last_agg = 0.0
         while not stop.is_set():
             now = time.time()
+            # 每轮补开 monitor_sync 新增的路
+            for j in _snap():
+                _open_pending(j)
+            if open_broadcast and _snap():
+                emit({"type": "monitor_start",
+                      "count": sum(1 for j in _snap() if j["opened"]),
+                      "fps": target_fps, "input": list(MONITOR_INPUT_SHAPE)})
+                open_broadcast = False
             batch, shapes = [], []
-            for j in jobs.values():
+            for j in _snap():
                 if j["done"] or j["error"] or not j["opened"] or stop.is_set():
                     continue
                 if now < j["next_t"]:
@@ -597,7 +608,7 @@ def _monitor_loop(engine) -> None:
                 # 快照聚合不每轮做（遍历54路+dict拷贝有开销），按 ~0.25s 节流
                 if now - last_agg >= 0.25:
                     with _mon_lock:
-                        for j in jobs.values():
+                        for j in _snap():
                             j["elapsed"] = time.time() - j["t0"]
                             j["flashes"] = dict(j["tracker"].flashes) \
                                 if j["tracker"] else {}
@@ -609,16 +620,16 @@ def _monitor_loop(engine) -> None:
         # 先停读帧线程再释放 cap，避免边读边释放导致崩溃
         if mon is not None:
             mon["stop"].set()
-            for j in mon["jobs"].values():
+            for j in _snap():
                 cvx = j.get("cv")
                 if cvx is not None and j.get("reader") is not None:
                     with cvx:
                         cvx.notify_all()    # 唤醒阻塞在 wait 的读线程退出
-            for j in mon["jobs"].values():
+            for j in _snap():
                 rd = j.get("reader")
                 if rd is not None:
                     rd.join(timeout=0.5)
-            for j in mon["jobs"].values():
+            for j in _snap():
                 if j["cap"] is not None:
                     j["cap"].release()
                     j["cap"] = None
@@ -651,6 +662,57 @@ def handle_monitor_stop() -> None:
         mon = _mon
     if mon is not None:
         mon["stop"].set()
+
+
+def handle_monitor_sync(cmd: dict) -> None:
+    """动态跟随电流运行集合：增删 monitor 路（不重建、保统计持续）。
+
+    add 的 job 尚未 opened，由监控循环每轮 `_open_pending` 幂等补开；
+    remove 的 job 在当前迭代内即用快照遍历隔离，互不影响。
+    """
+    global _mon
+    add = cmd.get("add") or []
+    remove_ = cmd.get("remove") or []
+    if not add and not remove_:
+        return
+    with _mon_lock:
+        mon = _mon
+        if mon is None:
+            return
+        jobs: dict = mon["jobs"]
+        conf, nms, fps = mon["conf"], mon["nms"], mon["fps"]
+        for cid in remove_:
+            j = jobs.pop(int(cid), None)
+            if j is None:
+                continue
+            cvx = j.get("cv")
+            if cvx is not None and j.get("reader") is not None:
+                with cvx:
+                    (j.get("readq") or deque()).clear()
+                    cvx.notify_all()      # 唤醒读线程退出
+            rd = j.get("reader")
+            if rd is not None:
+                rd.join(timeout=0.5)
+            if j.get("cap") is not None:
+                j["cap"].release()
+                j["cap"] = None
+        for it in add:
+            job = int(it["job"])
+            path = str(Path(it["video"]).resolve())
+            paused = bool(it.get("paused", False))
+            if job in jobs:
+                jobs[job]["paused"] = paused
+                continue
+            jobs[job] = {
+                "job": job, "path": path,
+                "cap": None, "fps": fps, "period": 1.0 / fps if fps > 0 else 0.25,
+                "w": 0, "h": 0, "total": 0, "rate": 0.0,
+                "frame": 0, "t0": 0.0, "next_t": 0.0, "conf": conf, "nms": nms,
+                "done": False, "opened": False, "error": None,
+                "loop": True, "loops": 0, "paused": paused,
+                "tracker": None, "last": {}, "flashes": {}, "elapsed": 0.0,
+            }
+    emit({"type": "monitor_synced", "count": len(jobs)})
 
 
 def handle_snapshot() -> None:
@@ -814,6 +876,8 @@ def main() -> int:
                 handle_resume(cmd)
             elif kind == "monitor":
                 handle_monitor(cmd)
+            elif kind == "monitor_sync":
+                handle_monitor_sync(cmd)
             elif kind == "monitor_stop":
                 handle_monitor_stop()
             elif kind == "snapshot":
