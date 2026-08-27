@@ -42,6 +42,7 @@ ALERT_CRITICAL = "[CRIT] {msg}"
 
 # ---- 通道状态文字 -----------------------------------------------------------
 STATUS_ONLINE_TEXT = "● ON"
+STATUS_PAUSED_TEXT = "⏸ PAUSED"
 STATUS_ALERT_TEXT = "● ALERT"
 STATUS_NO_DATA_TEXT = "○ NO DATA"
 STATUS_OFFLINE_TEXT = "○ OFF"
@@ -76,7 +77,7 @@ class DetectionStatePresentation(NamedTuple):
 DETECTION_STATE_PRESENTATION: dict[str, DetectionStatePresentation] = {
     "stopped": DetectionStatePresentation("no_data", DETECTION_STATE_STOPPED),
     "running": DetectionStatePresentation("online",  DETECTION_STATE_RUNNING),
-    "paused":  DetectionStatePresentation("online",  DETECTION_STATE_PAUSED),
+    "paused":  DetectionStatePresentation("paused",  DETECTION_STATE_PAUSED),
 }
 
 
@@ -268,6 +269,7 @@ NAV_VERSION_TEXT = "v3.0"
 TOOLBAR_TITLE = "⚡ 电流检测  ·  CURRENT DETECTION"
 TOOLBAR_BTN_START_LABEL = "▶ 启动"
 TOOLBAR_BTN_PAUSE_LABEL = "⏸ 暂停"
+TOOLBAR_BTN_RESUME_LABEL = "↻ 继续"
 TOOLBAR_BTN_STOP_LABEL = "■ 停止"
 TOOLBAR_BTN_CLEAR_LABEL = "✕ 清空"
 # 选区计数：模板用 n=0 时即为默认"已选 0"

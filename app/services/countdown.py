@@ -65,6 +65,7 @@ class CountdownService(QObject):
         self._timer.setInterval(config.COUNTDOWN_TICK_MS)
         self._timer.timeout.connect(self._tick)
         self._running_cids: set = set()  # 只存正在跑的 cid，避免全表扫描
+        self._paused_cids: set = set()   # 已暂停的 cid（remain_s 冻结不递减）
 
     # -- 查询 API -------------------------------------------------------------
     def state(self, cid: int) -> str:
@@ -73,6 +74,10 @@ class CountdownService(QObject):
 
     def is_running(self, cid: int) -> bool:
         return cid in self._running_cids
+
+    def is_paused(self, cid: int) -> bool:
+        """该 cid 是否处于暂停冻结（倒计时停走但仍在 running）。"""
+        return cid in self._paused_cids
 
     def remaining(self, cid: int) -> int:
         e = self._entries.get(cid)
@@ -105,6 +110,7 @@ class CountdownService(QObject):
             return
         total_s = int(total_s)
         prev_state = self.state(cid)
+        self._paused_cids.discard(cid)  # 新一次 start 视为非暂停
         self._entries[cid] = {
             "state": STATE_RUNNING,
             "total_s": total_s,
@@ -142,10 +148,31 @@ class CountdownService(QObject):
         e["state"] = STATE_IDLE
         e["remain_s"] = 0
         self._running_cids.discard(cid)
+        self._paused_cids.discard(cid)
         self.cancelled.emit(cid)
         self.finished.emit(cid)
         self._stop_timer_if_idle()
         # 不再 per-cell 打 DEBUG：cell_controller 的 cell_state_apply event 已覆盖。
+
+    def pause(self, cid: int) -> None:
+        """暂停某 cell 的倒计时（remain_s 冻结，不再随 tick 递减）。
+
+        仅在存在 running(非已暂停) 的倒计时时生效；已暂停则幂等。
+        倒计时与 cell 状态机解耦：本方法是用户主动"暂停检测"与之联动时调用，
+        由 current_page 在 pause 动作下统一触发。
+        """
+        if cid in self._entries and cid in self._running_cids \
+                and cid not in self._paused_cids:
+            self._paused_cids.add(cid)
+            _log.debug("event=countdown_paused cid=CH-%s remain_s=%s",
+                       cid, self._entries[cid]["remain_s"])
+
+    def resume(self, cid: int) -> None:
+        """恢复某 cell 的倒计时（继续递减）。仅在已暂停时生效；否则幂等。"""
+        if cid in self._paused_cids:
+            self._paused_cids.discard(cid)
+            _log.debug("event=countdown_resumed cid=CH-%s remain_s=%s",
+                       cid, self._entries.get(cid, {}).get("remain_s", 0))
 
     def set_duration(self, cid: int, new_total_s: int) -> None:
         """详情页 spinbox 调整：rescale 倒计时。
@@ -194,6 +221,9 @@ class CountdownService(QObject):
                 self._running_cids.discard(cid)
                 _log.debug("tick cid=%s: 状态 %s 异常, 从 running 移除",
                            cid, e["state"] if e else None)
+                continue
+            if cid in self._paused_cids:
+                # 暂停：冻结剩余时间，不递减、不结束（仍在 running 列表中保持 timer 呼吸）
                 continue
             e["remain_s"] -= 1
             if e["remain_s"] <= 0:

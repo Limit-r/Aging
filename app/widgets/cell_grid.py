@@ -72,6 +72,11 @@ class CellGrid(QWidget):
         for cid in range(1, self._total + 1):
             cell = DataCell(cid, self)
             self._ui_mgr.apply_state(cell, DetectionState.STOPPED.value)
+            # 选中/打开由 DataCell 信号驱动：DataCell 内部子控件已对鼠标透明，
+            # 点击事件稳定落到 DataCell 本体（不再依赖 CellGrid.mousePress 里的
+            # childAt 是否命中 DataCell，那方式点击会命中 QLabel 等子控件而失效）。
+            cell.clicked.connect(self._on_cell_clicked)
+            cell.double_clicked.connect(self._on_cell_double_clicked)
             self._cells[cid] = cell
             row = (cid - 1) // config.GRID_COLS
             col = (cid - 1) % config.GRID_COLS
@@ -89,16 +94,20 @@ class CellGrid(QWidget):
         self._apply_selection_visual()
         self.selection_changed.emit(set(self._selection))
 
+    def select_all(self) -> None:
+        """全选所有 CH（Ctrl+A 触发，用于全局批量操作）。"""
+        self._selection = set(range(1, self._total + 1))
+        self._anchor_cid = None
+        self._apply_selection_visual()
+        self.selection_changed.emit(set(self._selection))
+
     # -- 鼠标交互 ------------------------------------------------------------
-    def mousePressEvent(self, event) -> None:
-        if event.button() != Qt.LeftButton:
-            return super().mousePressEvent(event)
-        # childAt: 找到位置对应的 cell
-        cell = self.childAt(event.pos())
-        if not isinstance(cell, DataCell):
-            return super().mousePressEvent(event)
-        cid = cell.cell_id
-        mods = event.modifiers()
+    # 说明：fyv3.0 起，选中/打开不再通过 CellGrid.mousePressEvent + childAt 判断
+    #（点击命中 DataCell 内部子控件时会判定失败），改由 DataCell 的 clicked /
+    # double_clicked 信号驱动（见 _on_cell_clicked / _on_cell_double_clicked）。
+    def _on_cell_clicked(self, cid: int, modifiers: int) -> None:
+        """单击/多选 cell（Ctrl=切换 / Shift=连续 / 其他=单选）。"""
+        mods = Qt.KeyboardModifiers(modifiers)
         if mods & Qt.ControlModifier:
             # Ctrl+点击：切换
             if cid in self._selection:
@@ -122,23 +131,10 @@ class CellGrid(QWidget):
             self._anchor_cid = cid
         self._apply_selection_visual()
         self.selection_changed.emit(set(self._selection))
-        super().mousePressEvent(event)
 
-    def mouseDoubleClickEvent(self, event) -> None:
-        """双击 cell → 打开对应详情页（与 3D 视图双击语义一致）。
-
-        命中点常落在 cell 内部子控件（QLabel 等）上，需沿父链向上定位到 DataCell，
-        否则"时灵时不灵"（只有点到 cell 空白处才生效）。
-        """
-        widget = self.childAt(event.pos())
-        while widget is not None and widget is not self \
-                and not isinstance(widget, DataCell):
-            widget = widget.parentWidget()
-        if isinstance(widget, DataCell):
-            self.cell_double_clicked.emit(widget.cell_id)
-            event.accept()
-            return
-        super().mouseDoubleClickEvent(event)
+    def _on_cell_double_clicked(self, cid: int) -> None:
+        """双击 cell → 打开对应详情页（与 3D 视图双击语义一致）。"""
+        self.cell_double_clicked.emit(cid)
 
     # -- 视觉同步 ------------------------------------------------------------
     def _apply_selection_visual(self) -> None:

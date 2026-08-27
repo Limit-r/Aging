@@ -569,10 +569,19 @@ class HomePage(QMainWindow):
         _log.info("detail → home: rotation & azimuth restored")
 
     def _on_detail_action(self, action: str, cid: int) -> None:
-        """详情页操作按钮 → 转发给 CellController。"""
-        if hasattr(self, "_current_page") and self._current_page is not None:
-            self._current_page.cell_controller.apply(action, [cid])
-        _log.info("detail action forwarded: %s cid=%d", action, cid)
+        """详情页操作按钮 → 复用电流页完整业务逻辑（与主页按键完全联动）。
+
+        仅 apply controller 是不够的：start 还需启动老化倒计时、stop 还需
+        取消倒计时并复位自动检测、pause/resume 还需同步 demo running 源。
+        统一路由到 CurrentDetectionPage 的同一套方法，保证两页行为一致。
+        """
+        if not (hasattr(self, "_current_page") and self._current_page is not None):
+            _log.error("detail action ignored: current page not ready")
+            return
+        cp = self._current_page
+        # 统一走电流页完整业务路径（start/stop 联动倒计时、pause/resume 联动暂停倒计时）
+        cp._apply_action_to_cids(action, [cid])
+        _log.info("detail action=%s cid=%d forwarded to full business path", action, cid)
 
     # -- Phase 3 fix：HUD 状态同步 -------------------------------------------
     def _on_cell_state_for_hud(self, cid: int, old: str, new: str) -> None:

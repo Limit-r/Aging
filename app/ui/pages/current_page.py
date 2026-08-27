@@ -59,6 +59,8 @@ class CurrentToolbar(QFrame):
         super().__init__(parent)
         self.setObjectName("currentToolbar")
         self.setFixedHeight(_S.TOOLBAR_H)
+        # 暂停/继续共享一个按钮：当前应执行的 action（随选区状态动态切换）
+        self._pause_action = "pause"
         self._build_ui(total)
 
     def _build_ui(self, total: int) -> None:
@@ -82,7 +84,7 @@ class CurrentToolbar(QFrame):
         self._btn_stop = self._make_btn(labels.TOOLBAR_BTN_STOP_LABEL, "btnBatch")
         self._btn_clear = self._make_btn(labels.TOOLBAR_BTN_CLEAR_LABEL, "btnBatch")
         self._btn_start.clicked.connect(lambda: self.action_requested.emit("start"))
-        self._btn_pause.clicked.connect(lambda: self.action_requested.emit("pause"))
+        self._btn_pause.clicked.connect(self._emit_pause_action)
         self._btn_stop.clicked.connect(lambda: self.action_requested.emit("stop"))
         self._btn_clear.clicked.connect(lambda: self.action_requested.emit("clear"))
         layout.addWidget(self._btn_start)
@@ -113,15 +115,40 @@ class CurrentToolbar(QFrame):
         b.setMinimumHeight(_S.TOOLBAR_BTN_MIN_H)
         return b
 
-    def update_selection(self, n: int) -> None:
-        self._selection_label.setText(labels.TOOLBAR_SELECTION_TEMPLATE.format(n=n))
-        # 选区为空时禁用 start/pause/stop
+    def _emit_pause_action(self) -> None:
+        # 选区含"已暂停"时按钮变成"继续"，此时 emit resume；否则 emit pause
+        self.action_requested.emit(self._pause_action)
+
+    def refresh_actions(self, n: int, actions: dict) -> None:
+        """按选区内 cell 实际状态细化启用/禁用与"暂停/继续"动态切换。
+
+        actions: {"start","pause","resume","stop"} → 各自可操作的 cell 数。
+        - start  仅在存在"停止"cell 时可用
+        - 暂停/继续 共享一个按钮：选区含"已暂停"→"↻ 继续"(resume)，
+          否则含"运行中"→"⏸ 暂停"(pause)，两者皆无则禁用
+        - stop   仅在存在"运行中/已暂停"cell 时可用
+        - clear  始终可用
+        """
         has = n > 0
-        self._btn_start.setEnabled(has)
-        self._btn_pause.setEnabled(has)
-        self._btn_stop.setEnabled(has)
-        # clear 总是可用
+        # 启动：有处于 stopped 的 cell 才可点
+        self._btn_start.setEnabled(has and actions["start"] > 0)
+        # 暂停/继续：动态文本 + 切换目标 action
+        if actions["resume"] > 0:
+            self._btn_pause.setText(labels.TOOLBAR_BTN_RESUME_LABEL)
+            self._pause_action = "resume"
+        else:
+            self._btn_pause.setText(labels.TOOLBAR_BTN_PAUSE_LABEL)
+            self._pause_action = "pause"
+        self._btn_pause.setEnabled(
+            has and (actions["pause"] > 0 or actions["resume"] > 0)
+        )
+        # 停止：有非停止 cell 才可点
+        self._btn_stop.setEnabled(has and actions["stop"] > 0)
+        # 清空总是可用
         self._btn_clear.setEnabled(True)
+        self._selection_label.setText(
+            labels.TOOLBAR_SELECTION_TEMPLATE.format(n=n)
+        )
 
 
 class CurrentDetectionPage(QWidget):
@@ -201,6 +228,8 @@ class CurrentDetectionPage(QWidget):
         self._grid.selection_changed.connect(self._on_selection_changed)
         self._grid.cell_double_clicked.connect(self._on_cell_double_clicked)
         outer.addWidget(self._grid, 1)
+        # 初始刷新：无选区 → 按钮默认禁用
+        self._refresh_toolbar()
 
     # -- demo ----------------------------------------------------------------
     def _demo_start_initial_cells(self) -> None:
@@ -257,6 +286,9 @@ class CurrentDetectionPage(QWidget):
         if self._last_visual.get(cid) != visual:
             self._last_visual[cid] = visual
             self.cell_visual_state.emit(cid, visual)
+        # 选区内的 cell 状态变化 → 同步刷新按钮启用/暂停-继续
+        if self._grid.selection():
+            self._refresh_toolbar()
 
     # -- 老化自动检测（电流 0→稳定浮动 → 自动开始倒计时）-------------------
     def _start_detection(self, cids) -> None:
@@ -305,10 +337,49 @@ class CurrentDetectionPage(QWidget):
         )
 
     # -- A.8 选区 + 批量 ----------------------------------------------------
+    def _refresh_toolbar(self) -> None:
+        """依据选区内各 cell 状态，刷新工具条按钮启用与暂停/继续切换。"""
+        cids = list(self._grid.selection())
+        actions = {
+            "start":  self._controller.count_actionable("start", cids),
+            "pause":  self._controller.count_actionable("pause", cids),
+            "resume": self._controller.count_actionable("resume", cids),
+            "stop":   self._controller.count_actionable("stop", cids),
+        }
+        self._toolbar.refresh_actions(len(cids), actions)
+
     def _on_selection_changed(self, cids: set) -> None:
-        self._toolbar.update_selection(len(cids))
+        self._refresh_toolbar()
         if cids:
             _log.debug("selection changed: %d cells", len(cids))
+
+    def _apply_action_to_cids(self, action: str, cids) -> list:
+        """统一动作执行：状态机 + 运行源 + 老化倒计时的联动（主页/详情页共用入口）。
+
+        - start： 启动老化倒计时（_start_detection）
+        - stop：  取消老化倒计时、复位自动检测（_stop_detection）
+        - pause： 切 paused 状态 + 冻结对应 cell 的倒计时
+        - resume：切 running 状态 + 恢复对应 cell 的倒计时
+        """
+        if action == "start":
+            return self._start_detection(cids)
+        if action == "stop":
+            return self._stop_detection(cids)
+        if action == "pause":
+            transitioned = self._controller.apply(action, cids)
+            if transitioned:
+                self._sync_source_running()
+                for cid in transitioned:
+                    self._countdown.pause(cid)
+            return transitioned
+        if action == "resume":
+            transitioned = self._controller.apply(action, cids)
+            if transitioned:
+                self._sync_source_running()
+                for cid in transitioned:
+                    self._countdown.resume(cid)
+            return transitioned
+        return []
 
     def _on_toolbar_action(self, action: str) -> None:
         cids = list(self._grid.selection())
@@ -317,23 +388,19 @@ class CurrentDetectionPage(QWidget):
             return
         if not cids:
             return
-        if action == "start":
-            transitioned = self._start_detection(cids)
-        elif action == "stop":
-            transitioned = self._stop_detection(cids)
-        else:  # pause / resume：仅切状态，倒计时不因暂停/恢复被取消
-            transitioned = self._controller.apply(action, cids)
-            if transitioned:
-                self._sync_source_running()
+        transitioned = self._apply_action_to_cids(action, cids)
         _log.info(
             "toolbar action=%s requested=%d transitioned=%d",
             action, len(cids), len(transitioned),
         )
 
-    # -- Esc 清空选区 --------------------------------------------------------
+    # -- Esc 清空 / Ctrl+A 全选 ---------------------------------------------
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key_Escape:
             self._grid.clear_selection()
+            return
+        if event.modifiers() & Qt.ControlModifier and event.key() == Qt.Key_A:
+            self._grid.select_all()
             return
         super().keyPressEvent(event)
 

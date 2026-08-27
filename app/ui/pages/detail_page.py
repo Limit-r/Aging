@@ -171,7 +171,7 @@ class DetailPage(QWidget):
         root.addWidget(self._actions)
 
         # 初始状态：未打开
-        self._set_actions_enabled(False)
+        self._refresh_actions_by_state()  # cid=0 → 全禁用
         self._set_aging_enabled(False)
 
     def _build_aging_box(self) -> QFrame:
@@ -289,7 +289,7 @@ class DetailPage(QWidget):
         old = self._cid
         self._cid = cid
         self._dirty = True
-        self._set_actions_enabled(True)
+        self._refresh_actions_by_state()
         # 刷新老化倒计时显示
         self._refresh_aging_display()
         # 清除旧异常段
@@ -343,6 +343,7 @@ class DetailPage(QWidget):
         if self._closing or cid != self._cid:
             return
         self._refresh_title()
+        self._refresh_actions_by_state()  # 状态变化 → 联动刷新操作按钮可用性
         # 归零异常检测仅在 RUNNING 状态启用
         if DetectionState(new_value) != DetectionState.RUNNING:
             self._clear_anomaly_segments()
@@ -472,9 +473,26 @@ class DetailPage(QWidget):
             self._plot.removeItem(f)
         self._anomaly_fills = []
 
-    def _set_actions_enabled(self, enabled: bool) -> None:
-        for btn in (self._btn_start, self._btn_pause, self._btn_resume, self._btn_stop):
-            btn.setEnabled(enabled and self._cid != 0)
+    def _refresh_actions_by_state(self) -> None:
+        """依据当前 channel 的检测状态刷新四个操作按钮的可用性（与主页工具条语义一致）。
+
+        - stopped/未打开：可「▶ 开始」，暂停/继续/停止不可用
+        - running：    ▶ 开始禁用，可「⏸ 暂停」「■ 停止」
+        - paused：     ▶ 开始禁用，可「↻ 继续」「■ 停止」
+        """
+        if self._cid == 0:
+            for btn in (self._btn_start, self._btn_pause,
+                        self._btn_resume, self._btn_stop):
+                btn.setEnabled(False)
+            return
+        state = self._controller.state_of(self._cid).value
+        self._btn_start.setEnabled(state == DetectionState.STOPPED.value)
+        self._btn_pause.setEnabled(state == DetectionState.RUNNING.value)
+        self._btn_resume.setEnabled(state == DetectionState.PAUSED.value)
+        self._btn_stop.setEnabled(state in (
+            DetectionState.RUNNING.value,
+            DetectionState.PAUSED.value,
+        ))
 
     # -- 老化倒计时 -----------------------------------------------------------
     def _on_countdown_changed(self, *args) -> None:

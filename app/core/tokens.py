@@ -55,6 +55,7 @@ class Colors:
     BORDER_SELECTED: str = "#00ffff"        # 选中（亮青，比 PRIMARY 更亮）
     BORDER_SELECTED_NODATA: str = "#cccccc"  # 选中 + NO_DATA（亮灰，区别于 BORDER_NO_DATA #3a3a3a）
     BORDER_SELECTED_ANOMALY: str = "#ff3b5c" # 选中 + 异常（亮红）
+    BORDER_PAUSED: str = "#00e5ff"          # 暂停（霓虹青，与 LED_PAUSED 同色系）
 
     # ---- 文本 -------------------------------------------------------------
     TEXT_PRIMARY: str = "#e2e8f0"
@@ -132,6 +133,7 @@ class Colors:
     GRADIENT_RUNNING_END: str = "rgba(16, 200, 130, 70)"     # 运行态渐变末（深绿）
     GRADIENT_RUNNING_BORDER: str = "rgba(16, 255, 161, 110)" # 运行态边框（绿半透明）
     TEXT_NEON_BLUE: str = "#3ca0ff"                          # 高亮蓝（老化完成闪烁边框）
+    TEXT_NEON_CYAN: str = "#00e5ff"                          # 霓虹青（暂停状态文字，同 LED_PAUSED）
     GRADIENT_AGING_DONE_START: str = "rgba(60, 160, 255, 130)"  # 老化完成闪烁渐变起（亮蓝）
     GRADIENT_AGING_DONE_END: str = "rgba(30, 90, 200, 100)"     # 老化完成闪烁渐变末（深蓝）
     GRADIENT_AGING_DONE_BORDER: str = "rgba(60, 160, 255, 120)" # 老化完成闪烁边框（暗蓝）

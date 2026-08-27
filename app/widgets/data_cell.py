@@ -163,6 +163,7 @@ class DataCell(QWidget):
 
     STATUS_OFFLINE = "offline"
     STATUS_ONLINE = "online"
+    STATUS_PAUSED = "paused"
     STATUS_ANOMALY = "anomaly"
     STATUS_NO_DATA = "no_data"
 
@@ -210,6 +211,11 @@ class DataCell(QWidget):
 
         self._grid = DataGrid()
         outer.addWidget(self._grid, 1)
+        # 让所有子控件对鼠标透明：否则点击 HeaderBar/DataPoint/QLabel 时，
+        # 父级 childAt() 命中的是子控件而非本 DataCell，会导致单击选中 /
+        # 双击打开"时灵时不灵"。统一透明后，鼠标事件稳定由 DataCell 本体接收。
+        for child in self.findChildren(QWidget):
+            child.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
     def _init_display(self) -> None:
         """初始空白态：所有点显示 '---'、状态 no_data。"""
@@ -238,6 +244,8 @@ class DataCell(QWidget):
         s = status_value.value if hasattr(status_value, "value") else status_value
         if s == self.STATUS_ONLINE:
             self.set_status(self.STATUS_ONLINE)
+        elif s == self.STATUS_PAUSED:
+            self.set_status(self.STATUS_PAUSED)
         elif s == self.STATUS_ANOMALY:
             self.set_status(self.STATUS_ANOMALY)
         elif s == self.STATUS_NO_DATA:
@@ -256,6 +264,10 @@ class DataCell(QWidget):
         if status == self.STATUS_ONLINE:
             self._header.set_status_text(
                 labels.STATUS_ONLINE_TEXT, c.TEXT_NEON_GREEN
+            )
+        elif status == self.STATUS_PAUSED:
+            self._header.set_status_text(
+                labels.STATUS_PAUSED_TEXT, c.TEXT_NEON_CYAN
             )
         elif status == self.STATUS_ANOMALY:
             self._header.set_status_text(

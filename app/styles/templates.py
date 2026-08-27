@@ -251,6 +251,9 @@ QWidget#dataCell[status="anomaly"] {{
         x1:0, y1:0, x2:0, y2:1,
         stop:0 {c.BG_CELL_ALERT_TOP}, stop:1 {c.BG_CELL_ALERT_BOTTOM});
 }}
+QWidget#dataCell[status="paused"] {{
+    border: {s.BORDER_THICK}px solid {c.BORDER_PAUSED};
+}}
 QWidget#dataCell[status="offline"] {{
     border: {s.BORDER_THICK}px solid {c.BORDER_OFFLINE};
     background-color: {c.BG_TITLE_BAR};
