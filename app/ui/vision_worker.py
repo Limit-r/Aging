@@ -45,6 +45,9 @@ class VisionWorkerManager(QObject):
         self._buf: str = ""
         self._state = "idle"
         self._stopping = False
+        # worker 未启动/未 ready 时暂存命令，ready 后按序补发，
+        # 保证电流页等先于 worker 启动下达的 pause/resume 等命令不丢失
+        self._pending: list = []
 
     # ------------------------------------------------------------------ 状态
     @property
@@ -80,10 +83,32 @@ class VisionWorkerManager(QObject):
 
     # ------------------------------------------------------------------ 命令
     def send(self, obj: dict) -> None:
-        """向 worker 的 stdin 写入一行 JSON 命令。"""
-        if self._proc is None or self._stopping:
+        """向 worker 的 stdin 写入一行 JSON 命令。
+
+        worker 进程未启动或尚未 ready 时，先缓存到 `_pending`，等 ready 事件
+        到达后按序补发。避免先于 worker 启动下达的 pause/resume 等联动命令
+        被静默丢弃。
+        """
+        if self._stopping:
+            return
+        if self._proc is None or self._state != "ready":
+            self._pending.append(obj)
+            return
+        self._write(obj)
+
+    def _write(self, obj: dict) -> None:
+        if self._proc is None:
             return
         self._proc.write((json.dumps(obj) + "\n").encode("utf-8"))
+
+    def _flush_pending(self) -> None:
+        if not self._pending:
+            return
+        pending, self._pending = self._pending, []
+        for obj in pending:
+            self._write(obj)
+        narrative.event("vision_worker_flush",
+                        note=f"补发 {len(pending)} 条待执行命令")
 
     # ------------------------------------------------------------------ 收发
     def _on_stdout(self) -> None:
@@ -110,6 +135,7 @@ class VisionWorkerManager(QObject):
         if ptype == "ready":
             self._set_state("ready")
             self.ready.emit(payload.get("device", ""))
+            self._flush_pending()
         elif ptype == "fatal":
             self.fatal.emit(payload.get("message", ""))
         else:
@@ -143,7 +169,7 @@ class VisionWorkerManager(QObject):
             self._stopping = False
             return
         self._stopping = True
-        self.send({"cmd": "quit"})
+        self._write({"cmd": "quit"})
         self._proc.terminate()
         if not self._proc.waitForFinished(wait_ms):
             _log.warning("vision worker did not exit gracefully, killing")

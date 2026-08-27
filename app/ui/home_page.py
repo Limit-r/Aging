@@ -432,6 +432,7 @@ class HomePage(QMainWindow):
         # 视频总览双击位点 → 切到视频流检测页
         self._video_page.open_stream_requested.connect(self._on_open_video_stream)
         self._video_stream_page.requested_back.connect(self._on_video_stream_back)
+        self._video_stream_page.action_requested.connect(self._on_video_stream_action)
         root.addWidget(self._router, 1)
 
         # 3) 底部状态栏
@@ -549,6 +550,24 @@ class HomePage(QMainWindow):
         """视频流检测页返回 → 回视频总览。"""
         self._router.navigate("video")
         _log.info("video stream → overview")
+
+    def _on_video_stream_action(self, action: str) -> None:
+        """视频流检测页的暂停/继续/停止 → 复用电流页完整业务路径。
+
+        与 `_on_detail_action` 同理：仅 apply controller 不够，start/stop 还需
+        联动倒计时与 demo running 源、pause/resume 还需冻结倒计时；统一路由到
+        CurrentDetectionPage，实现「视频↔电流」的 pause/resume/stop 双向联动。
+        """
+        if not (hasattr(self, "_current_page") and self._current_page is not None):
+            _log.error("video stream action ignored: current page not ready")
+            return
+        cid = self._video_stream_page._cid
+        if cid is None:
+            _log.warning("video stream action=%s ignored: no active channel", action)
+            return
+        self._current_page._apply_action_to_cids(action, [cid])
+        _log.info("video stream action=%s cid=%d forwarded to full business path",
+                  action, cid)
 
     def _on_detail_back(self) -> None:
         """详情页点"返回主页" → 路由回 home + 恢复 3D 旋转 + 恢复 azimuth。"""

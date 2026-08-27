@@ -11,6 +11,8 @@
 stdin 命令（每行一个 JSON）::
     {"cmd": "detect", "job": 1, "video": "a.mp4", "outdir": "tmp"}
     {"cmd": "stop",   "job": 1}
+    {"cmd": "pause",  "job": 1}   # 暂停：继续接收视频流，但不推理/不记录/不计时
+    {"cmd": "resume", "job": 1}   # 恢复：丢弃暂停期间积压帧，从当前帧继续
     {"cmd": "quit"}
 
 stdout 事件（每行一个 JSON，均含 "job"）::
@@ -221,6 +223,7 @@ def _pop_frame(s: dict):
 def _new_stream(job: int, cmd: dict) -> dict:
     return {
         "job": job, "video": cmd["video"], "outdir": cmd.get("outdir", ""),
+        "loop": bool(cmd.get("loop", False)),   # 循环检测：EOF 后回到首帧续跑
         # 独立读帧线程 + 有界预读缓冲（cap.read 与调度解耦）
         "readq": None, "cv": None, "reader": None,
         "opened": False, "done": False, "stop": threading.Event(),
@@ -228,6 +231,9 @@ def _new_stream(job: int, cmd: dict) -> dict:
         "tracker": FlashTracker(), "last_states": {},
         "frame_idx": 0, "t0": 0.0, "next_t": 0.0, "period": 0.0,
         "thumb_step": 1, "thumb_scale": 1.0, "last_sec": -1, "last_thumb": 0,
+        # 暂停：继续接收视频流数据，但不推理/不记录状态灯，
+        # 暂停期间累计时长不计入 elapsed（视频侧单独计时随暂停冻结）
+        "paused": False, "paused_at": 0.0, "paused_total": 0.0,
     }
 
 
@@ -269,13 +275,27 @@ def _open_stream(s: dict) -> None:
           "fps": fps, "total": total})
 
 
+def _active_elapsed(s: dict, now: float | None = None) -> float:
+    """排除暂停区间的活跃检测时长（视频侧单独计时随暂停冻结）。
+
+    暂停中 paused 置真、paused_at 记录开始时刻，此时 elapsed 冻结；
+    恢复时把暂停时长并入 paused_total，elapsed 从暂停点继续累计。
+    """
+    if now is None:
+        now = time.time()
+    paused = s.get("paused_total", 0.0)
+    if s.get("paused"):
+        paused += now - s["paused_at"]
+    return now - s["t0"] - paused
+
+
 def _finish_stream(s: dict) -> None:
     """发出 done 事件并标记该流结束（VideoCapture 由清理阶段统一 release）。"""
     if s["done"]:
         return
     s["done"] = True
     emit({"type": "done", "job": s["job"], "frames": s["frame_idx"],
-          "elapsed": round(time.time() - s["t0"], 1)})
+          "elapsed": round(_active_elapsed(s), 1)})
 
 
 def _close_cap(s: dict) -> None:
@@ -297,7 +317,7 @@ def _process_frame(s: dict, frame, dets, hl) -> None:
     samples = _assign_led_ids(dets, hl)
     s["last_states"].update(samples)          # 抗单帧漏检：缺失沿用旧值
     flashes = s["tracker"].update(samples)
-    elapsed = time.time() - s["t0"]
+    elapsed = _active_elapsed(s)
     this_sec = int(s["frame_idx"] / s["fps"]) if s["fps"] > 0 else 0
     if this_sec != s["last_sec"]:
         s["last_sec"] = this_sec
@@ -346,11 +366,26 @@ def _tick(engine: DetectionEngine) -> bool:
     for s in entries:
         if (s["opened"] and not s["done"] and not s["stop"].is_set()
                 and now >= s["next_t"]):
+            if s.get("paused"):
+                # 暂停：继续接收视频流数据，但不取帧/不推理/不记录状态灯。
+                # 缓冲由读帧线程持续填充直至上限，恢复时统一丢弃。
+                continue
             item = _pop_frame(s)
             if item is None:
                 continue                        # 缓冲空：等读帧线程
             if item[0] == "eof":
-                _finish_stream(s)
+                if s.get("loop"):
+                    # 循环检测：视频 EOF 后回到首帧并重启读帧线程续跑，
+                    # 使视频流持续提供数据（无摄像头/有限视频片段时便于测试）
+                    # 但循环读帧期间不再 reset 计时，故仅依赖真结束才 done。
+                    s["cap"].set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    s["readq"] = deque()
+                    s["cv"] = threading.Condition()
+                    s["reader"] = threading.Thread(
+                        target=_reader_loop, args=(s,), daemon=True)
+                    s["reader"].start()
+                else:
+                    _finish_stream(s)
                 continue
             frame = item[1]
             s["frame_idx"] += 1
@@ -637,6 +672,59 @@ def handle_stop(cmd: dict) -> None:
         s["stop"].set()
 
 
+def handle_pause(cmd: dict) -> None:
+    """暂停某条视频流检测：继续接收视频流数据，但不再取帧推理/记录状态灯。
+
+    押上锁置 paused，读帧线程仍持续填充缓冲至上限后阻塞；恢复时统一丢弃。
+    """
+    job = int(cmd["job"])
+    with _streams_lock:
+        s = _streams.get(job)
+    if s is None or s["done"] or s["stop"].is_set() or not s["opened"]:
+        return
+    s["paused"] = True
+    s["paused_at"] = time.time()
+    emit({"type": "paused", "job": job})
+
+
+def handle_resume(cmd: dict) -> None:
+    """恢复某条被暂停的视频流检测。
+
+    - 丢弃暂停期间读到的积压帧（不把这些停推画面的数据计入）；
+    - 重算 paused_total（暂停区间不计入 _active_elapsed）；
+    - 重置 next_t 让读帧线程即刻续供。
+    """
+    job = int(cmd["job"])
+    with _streams_lock:
+        s = _streams.get(job)
+    if s is None or not s["paused"]:
+        return
+    now = time.time()
+    s["paused_total"] += now - s["paused_at"]
+    s["paused"] = False
+    s["paused_at"] = 0.0
+    s["next_t"] = now
+    if s["cap"] is not None:
+        reader = s.get("reader")
+        reader_alive = reader is not None and reader.is_alive()
+        if not reader_alive:
+            # 暂停期间读帧线程可能已因读数 EOF 退出（缓冲里只剩 EOF 哨兵）。
+            # 此时直接清空缓冲会把哨兵一起清掉：既无新帧可续跑、也不会再触发
+            # loop 重开，恢复后永久死等。这里回卷到首帧并重启读帧线程，
+            # 保证 loop 测试视频在恢复后持续续跑（非 loop 流未 EOF 时不会走到此）。
+            s["cap"].set(cv2.CAP_PROP_POS_FRAMES, 0)
+            s["readq"] = deque()
+            s["cv"] = threading.Condition()
+            s["reader"] = threading.Thread(
+                target=_reader_loop, args=(s,), daemon=True)
+            s["reader"].start()
+        else:
+            with s["cv"]:
+                s["readq"].clear()
+                s["cv"].notify_all()
+    emit({"type": "resumed", "job": job})
+
+
 def main() -> int:
     # 预加载模型（阻塞在进入命令循环之前，模型加载完成后再处理 job 命令）
     emit({"type": "status", "message": "预加载检测模型…"})
@@ -674,6 +762,10 @@ def main() -> int:
                 handle_detect(cmd)
             elif kind == "stop":
                 handle_stop(cmd)
+            elif kind == "pause":
+                handle_pause(cmd)
+            elif kind == "resume":
+                handle_resume(cmd)
             elif kind == "monitor":
                 handle_monitor(cmd)
             elif kind == "monitor_stop":

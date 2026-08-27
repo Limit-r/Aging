@@ -44,6 +44,11 @@ _C = DEFAULT_TOKENS.colors
 
 _log = get_logger("app.ui.pages.video_stream_page")
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]   # d:\Aging
+
+# 无摄像头联动测试用默认视频：进入页面自动载入并循环检测，便于验证暂停/恢复
+DEFAULT_TEST_VIDEO = PROJECT_ROOT / "video" / "0001.mp4"
+
 # 一个通道内最多同时展示的亮灭分组表数
 MAX_TABLES = 4
 
@@ -288,6 +293,9 @@ class VsResultPanel(QWidget):
 class VideoStreamPage(QWidget):
     """单通道视频流检测页。"""
     requested_back = pyqtSignal()
+    # action: "pause"/"resume"/"stop" —— 用户在本页的暂停/继续/停止，转发给
+    # 电流页统一业务路径，实现「视频↔电流」在 pause/resume/stop 三态上的双向联动。
+    action_requested = pyqtSignal(str)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -296,6 +304,7 @@ class VideoStreamPage(QWidget):
         self._video_path: Optional[str] = None
         self._outdir = Path(tempfile.mkdtemp(prefix="aging_videostream_"))
         self._running = False
+        self._paused = False
         self._worker_ready = False
         # 全局单例 worker：跨页面复用，进程只启动一次
         self._wm = get_vision_worker()
@@ -307,6 +316,12 @@ class VideoStreamPage(QWidget):
         self._refresh_timer.setInterval(_S.VIDEO_REFRESH_MS)
         self._refresh_timer.timeout.connect(self._refresh_video)
         self._wm.ensure_started()
+        # 无摄像头联动测试：自动载入默认循环视频，便于直接点击「开始」验证
+        if DEFAULT_TEST_VIDEO.exists():
+            self._video_path = str(DEFAULT_TEST_VIDEO)
+            self._video.setText(labels.VIDEO_PANEL_LOADING)
+            self._btn_start.setEnabled(True)
+            _log.info("auto-loaded default test video: %s", self._video_path)
         narrative.event(
             "video_stream_init",
             note="v3.1 视频流检测页：全局单例 worker + 槽位分组多表亮灭方波图")
@@ -332,14 +347,22 @@ class VideoStreamPage(QWidget):
         bl.addWidget(self._title)
         bl.addStretch(1)
         self._btn_import = self._make_btn(labels.VIDEO_TOOLBAR_BTN_IMPORT)
+        self._btn_pause = self._make_btn(labels.VIDEO_TOOLBAR_BTN_PAUSE)
         self._btn_start = self._make_btn(labels.VIDEO_TOOLBAR_BTN_START)
         self._btn_stop = self._make_btn(labels.VIDEO_TOOLBAR_BTN_STOP)
         self._btn_import.clicked.connect(self._on_import)
+        self._btn_pause.clicked.connect(self._on_pause)
         self._btn_start.clicked.connect(self._on_start)
         self._btn_stop.clicked.connect(self._on_stop)
         bl.addWidget(self._btn_import)
+        bl.addWidget(self._btn_pause)
         bl.addWidget(self._btn_start)
         bl.addWidget(self._btn_stop)
+        bl.addSpacing(8)
+        # 检测状态指示：运行中 / 已暂停
+        self._status = QLabel(labels.VIDEO_DETECT_STATUS_IDLE)
+        self._status.setObjectName("vsDetectStatus")
+        bl.addWidget(self._status)
         outer.addWidget(bar)
 
         # 主体：左实时画面 + 右结果图表
@@ -385,6 +408,7 @@ class VideoStreamPage(QWidget):
 
         self._btn_stop.setEnabled(False)
         self._btn_start.setEnabled(False)
+        self._btn_pause.setEnabled(False)
 
     def _make_btn(self, text: str) -> QPushButton:
         b = QPushButton(text)
@@ -426,6 +450,16 @@ class VideoStreamPage(QWidget):
             self._result.set_data(
                 payload.get("flashes", {}), payload.get("elapsed"),
                 payload.get("states"))
+        elif ptype == "paused" and payload.get("job") == self._cid:
+            self._paused = True
+            self._refresh_pause_ui()
+            narrative.event(
+                "video_stream_paused", note=f"CH-{self._cid:02d} 视频检测已暂停")
+        elif ptype == "resumed" and payload.get("job") == self._cid:
+            self._paused = False
+            self._refresh_pause_ui()
+            narrative.event(
+                "video_stream_resumed", note=f"CH-{self._cid:02d} 视频检测已恢复")
         elif ptype == "done" and payload.get("job") == self._cid:
             self._video.setText(labels.VIDEO_CELL_STATE_DONE)
             self._finish_run()
@@ -459,28 +493,70 @@ class VideoStreamPage(QWidget):
         self._btn_start.setEnabled(False)
         self._btn_stop.setEnabled(True)
         self._running = True
+        self._paused = False
+        self._refresh_pause_ui()
         self._wm.send({"cmd": "detect", "job": self._cid,
-                       "video": self._video_path, "outdir": str(self._outdir)})
+                       "video": self._video_path, "outdir": str(self._outdir),
+                       "loop": True})
         self._refresh_timer.start()
         narrative.event(
-            "video_stream_start", note=f"CH-{self._cid:02d} 逐帧检测启动")
+            "video_stream_start", note=f"CH-{self._cid:02d} 循环检测启动")
 
     def _on_stop(self) -> None:
         self._stop_detection(mark_idle=True)
+        # 视频“停止” → 同步到电流页（controller.stop + 倒计时取消 + 电流→视频 stop 幂等）
+        self.action_requested.emit("stop")
+
+    def _on_pause(self) -> None:
+        """切换当前检测的暂停/恢复（视频模块自身按钮）。"""
+        if self._cid is None or not self._running:
+            return
+        if self._paused:
+            self._wm.ensure_started()
+            self._wm.send({"cmd": "resume", "job": self._cid})
+            # 即时反馈；worker resumed 事件到达后 _refresh_pause_ui 再次校正确认
+            self._paused = False
+            self._refresh_pause_ui()
+            self.action_requested.emit("resume")
+        else:
+            self._wm.ensure_started()
+            self._wm.send({"cmd": "pause", "job": self._cid})
+            self._paused = True
+            self._refresh_pause_ui()
+            self.action_requested.emit("pause")
+
+    def _refresh_pause_ui(self) -> None:
+        """按当前 _running/_paused 刷新暂停按钮文案与检测状态指示。"""
+        if not self._running:
+            self._btn_pause.setEnabled(False)
+            self._status.setText(labels.VIDEO_DETECT_STATUS_IDLE)
+            return
+        self._btn_pause.setEnabled(True)
+        if self._paused:
+            self._btn_pause.setText(labels.VIDEO_TOOLBAR_BTN_RESUME)
+            self._status.setText(labels.VIDEO_DETECT_STATUS_PAUSED)
+            self._video.setText(labels.VIDEO_DETECT_STATUS_PAUSED)
+        else:
+            self._btn_pause.setText(labels.VIDEO_TOOLBAR_BTN_PAUSE)
+            self._status.setText(labels.VIDEO_DETECT_STATUS_RUNNING)
 
     def _stop_detection(self, mark_idle: bool = False) -> None:
         if self._cid is not None and self._running:
             self._wm.send({"cmd": "stop", "job": self._cid})
         self._running = False
+        self._paused = False
         self._stop_timer()
         self._btn_stop.setEnabled(False)
+        self._refresh_pause_ui()
         if not mark_idle:
             self._btn_start.setEnabled(bool(self._video_path))
 
     def _finish_run(self) -> None:
         self._running = False
+        self._paused = False
         self._stop_timer()
         self._btn_stop.setEnabled(False)
+        self._refresh_pause_ui()
         self._btn_start.setEnabled(bool(self._video_path))
 
     def _stop_timer(self) -> None:
@@ -514,6 +590,14 @@ class VideoStreamPage(QWidget):
             self._btn_start.setEnabled(True)
             _log.info("video stream set channel CH-%02d (带路径，直启)", cid)
             self._btn_start.click()   # 自动开始实时检测
+            return
+        # 无外部路径：若已自动载入默认测试视频，进入详情页即直接开始循环检测，
+        # 便于验证状态灯能被持续识别（省去手动点「开始」）。
+        if self._video_path:
+            self._result._reset()
+            self._btn_start.setEnabled(True)
+            _log.info("video stream set channel CH-%02d (默认测试视频，自动开始)", cid)
+            self._btn_start.click()
         else:
             _log.info("video stream set channel: CH-%02d", cid)
 

@@ -40,6 +40,7 @@ from app.services.cell_controller import CellController, DetectionState
 from app.services.cell_ui_manager import CellUIManager
 from app.services.countdown import CountdownService
 from app.services.aging_settings import get_aging_settings
+from app.ui.vision_worker import get_vision_worker
 from app.widgets.cell_grid import CellGrid
 
 
@@ -310,6 +311,8 @@ class CurrentDetectionPage(QWidget):
             self._detector.reset(cid)
         if transitioned:
             self._sync_source_running()
+            # 电流停止 → 同步停止对应通道的视频流检测（单向：电流→视频）
+            self._sync_vision_stop(list(transitioned))
         return transitioned
 
     def _sync_source_running(self) -> None:
@@ -371,6 +374,9 @@ class CurrentDetectionPage(QWidget):
                 self._sync_source_running()
                 for cid in transitioned:
                     self._countdown.pause(cid)
+            # 视频联动不依赖电流状态机：只要用户对某 CH 暂停，其视频流检测即同步
+            # 暂停（worker 对无对应 job 忽略，幂等安全）
+            self._sync_vision_pause("pause", list(cids))
             return transitioned
         if action == "resume":
             transitioned = self._controller.apply(action, cids)
@@ -378,8 +384,43 @@ class CurrentDetectionPage(QWidget):
                 self._sync_source_running()
                 for cid in transitioned:
                     self._countdown.resume(cid)
+            self._sync_vision_pause("resume", list(cids))
             return transitioned
         return []
+
+    def _sync_vision_pause(self, action: str, cids: list) -> None:
+        """把电流页的暂停/恢复同步到对应的视频流检测（单向：电流→视频）。
+
+        对每个成功转移的 cid，向全局视觉 worker 下发同 job 的 pause/resume，
+        使该通道若正在做视频流检测时也同步暂停/恢复。worker 对不存在/未打开的
+        job 自动忽略，故无视频检测时调用是安全的（幂等）。
+        """
+        cmd = "pause" if action == "pause" else "resume"
+        wm = get_vision_worker()
+        for cid in cids:
+            wm.send({"cmd": cmd, "job": cid})
+        narrative.event(
+            "current_vision_sync",
+            action=action,
+            channels=sorted(cids),
+            note=f"电流检测 {action} 已同步到 {len(cids)} 个通道的视频流检测",
+        )
+
+    def _sync_vision_stop(self, cids: list) -> None:
+        """把电流页的停止同步到对应的视频流检测（单向：电流→视频）。
+
+        对每个停止的 cid，向全局视觉 worker 下发 stop，使该通道若正在做
+        视频流检测时也同步停止。worker 对不存在/已结束的 job 忽略，幂等安全。
+        """
+        wm = get_vision_worker()
+        for cid in cids:
+            wm.send({"cmd": "stop", "job": cid})
+        narrative.event(
+            "current_vision_sync",
+            action="stop",
+            channels=sorted(cids),
+            note=f"电流检测 stop 已同步到 {len(cids)} 个通道的视频流检测",
+        )
 
     def _on_toolbar_action(self, action: str) -> None:
         cids = list(self._grid.selection())

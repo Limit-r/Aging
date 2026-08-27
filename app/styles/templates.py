@@ -1646,6 +1646,14 @@ QLabel#vsStats {{
     background: transparent;
 }}
 
+QLabel#vsDetectStatus {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+    font-weight: bold;
+    background: transparent;
+}}
+
 /* 检测结果面板：FP / A / 其他 各系列闪烁折线图 */
 QWidget#vsResult {{
     background: transparent;
