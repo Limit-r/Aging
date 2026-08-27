@@ -27,7 +27,7 @@ import pyqtgraph as pg
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QSpinBox,
 )
 
 from app.core import config, labels
@@ -36,7 +36,9 @@ from app.core.tokens import DEFAULT_TOKENS
 from app.data.history_buffer import HistoryBuffer
 from app.data.protocol import ChannelReading
 from app.observability import get_logger, narrative
+from app.services import aging_settings as aging_svc
 from app.services.cell_controller import CellController, DetectionState
+from app.services.countdown import CountdownService
 
 
 _log = get_logger("app.ui.pages.detail_page")
@@ -64,11 +66,15 @@ class DetailPage(QWidget):
         self,
         history: HistoryBuffer,
         cell_controller: CellController,
+        countdown_service: Optional[CountdownService] = None,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
         self._history = history
         self._controller = cell_controller
+        # 老化倒计时服务：默认独享一个；由 HomePage 注入与电流页共享，
+        # 保证自动检测启动的倒计时能在此显示并可修改。
+        self._countdown = countdown_service or CountdownService(parent=self)
         self._cid: int = 0  # 0 = 未打开
         self._dirty: bool = False
         self._closing: bool = False  # closeEvent gate（防 RuntimeError）
@@ -158,11 +164,54 @@ class DetailPage(QWidget):
         for btn in (self._btn_start, self._btn_pause, self._btn_resume, self._btn_stop):
             btn_layout.addWidget(btn)
         btn_layout.addStretch(1)
+        # 老化倒计时（按键右侧）：滚动显示 + 可修改
+        self._aging_box = self._build_aging_box()
+        btn_layout.addWidget(self._aging_box, 0, Qt.AlignVCenter)
         actions_layout.addLayout(btn_layout)
         root.addWidget(self._actions)
 
         # 初始状态：未打开
         self._set_actions_enabled(False)
+        self._set_aging_enabled(False)
+
+    def _build_aging_box(self) -> QFrame:
+        """老化倒计时：剩余时间滚动显示 + 修改时长（set_duration 保留已老化时间）。"""
+        s = DEFAULT_TOKENS.sizing
+        box = QFrame()
+        box.setObjectName("detailAgingBox")
+        lay = QHBoxLayout(box)
+        lay.setContentsMargins(8, 4, 8, 4)
+        lay.setSpacing(6)
+
+        sec = QLabel(labels.DETAIL_AGING_SECTION_TITLE)
+        sec.setObjectName("detailAgingSectionLabel")
+        lay.addWidget(sec)
+
+        self._aging_value = QLabel(labels.DETAIL_AGING_VALUE_IDLE)
+        self._aging_value.setObjectName("detailAgingValue")
+        lay.addWidget(self._aging_value)
+
+        edit_label = QLabel(labels.DETAIL_AGING_EDIT_PREFIX)
+        edit_label.setObjectName("detailAgingEditLabel")
+        lay.addWidget(edit_label)
+
+        self._aging_spin = QSpinBox()
+        self._aging_spin.setObjectName("detailAgingSpin")
+        self._aging_spin.setRange(
+            1, aging_svc.MAX_AGING_SECONDS // 60)
+        self._aging_spin.setSuffix(" 分")
+        lay.addWidget(self._aging_spin)
+
+        self._aging_apply = QPushButton(labels.DETAIL_AGING_APPLY)
+        self._aging_apply.setObjectName("detailAgingApply")
+        self._aging_apply.setCursor(Qt.PointingHandCursor)
+        self._aging_apply.clicked.connect(self._on_aging_apply)
+        lay.addWidget(self._aging_apply)
+
+        # 提示（已老化时间透明）：tooltip 更新
+        self._aging_hint = ""
+        box.setToolTip(labels.DETAIL_AGING_VALUE_IDLE)
+        return box
 
     def _make_action_btn(self, idx: int) -> QPushButton:
         """idx: 0=start / 1=pause / 2=resume / 3=stop"""
@@ -226,6 +275,11 @@ class DetailPage(QWidget):
         self._sample_timer.setInterval(self._SAMPLE_INTERVAL_MS)
         self._sample_timer.timeout.connect(self._on_sample)
         self._sample_timer.start()
+        # 老化倒计时联动（仅当 tick 属于当前 cid 时刷新显示）
+        self._countdown.started.connect(self._on_countdown_changed)
+        self._countdown.ticked.connect(self._on_countdown_changed)
+        self._countdown.cancelled.connect(self._on_countdown_changed)
+        self._countdown.expired.connect(self._on_countdown_changed)
 
     # -- 公共 API -------------------------------------------------------------
     def set_channel(self, cid: int) -> None:
@@ -236,6 +290,8 @@ class DetailPage(QWidget):
         self._cid = cid
         self._dirty = True
         self._set_actions_enabled(True)
+        # 刷新老化倒计时显示
+        self._refresh_aging_display()
         # 清除旧异常段
         self._clear_anomaly_segments()
         # 更新 title
@@ -419,6 +475,64 @@ class DetailPage(QWidget):
     def _set_actions_enabled(self, enabled: bool) -> None:
         for btn in (self._btn_start, self._btn_pause, self._btn_resume, self._btn_stop):
             btn.setEnabled(enabled and self._cid != 0)
+
+    # -- 老化倒计时 -----------------------------------------------------------
+    def _on_countdown_changed(self, *args) -> None:
+        """CountdownService 任一时序信号 → 刷新当前 cid 的倒计时显示。"""
+        if self._closing:
+            return
+        if args and self._cid and args[0] == self._cid:
+            self._refresh_aging_display()
+
+    def _refresh_aging_display(self) -> None:
+        """按当前 cid 的倒计时状态刷新老化显示 + 启用/禁用修改控件。"""
+        if self._cid == 0:
+            self._aging_value.setText(labels.DETAIL_AGING_VALUE_IDLE)
+            self._set_aging_enabled(False)
+            return
+        if not self._countdown.is_running(self._cid):
+            self._aging_value.setText(labels.DETAIL_AGING_VALUE_IDLE)
+            self._set_aging_enabled(False)
+            self._aging_box.setToolTip(labels.DETAIL_AGING_VALUE_IDLE)
+            return
+        remain = self._countdown.remaining(self._cid)
+        total = self._countdown.total(self._cid)
+        consumed = max(total - remain, 0)
+        h, rem = divmod(remain, 3600)
+        m, s = divmod(rem, 60)
+        self._aging_value.setText(
+            labels.DETAIL_AGING_VALUE_RUNNING.format(h=h, m=m, s=s)
+        )
+        # 用户正在编辑 spin 时不覆盖其输入（打字会被每秒 tick 打断 → "改不了" bug）
+        if not self._aging_spin.hasFocus():
+            self._aging_spin.setMaximum(
+                max(total // 60, aging_svc.MAX_AGING_SECONDS // 60))
+            self._aging_spin.setValue(total // 60)
+        self._set_aging_enabled(True)
+        self._aging_box.setToolTip(
+            labels.DETAIL_AGING_HINT_TEMPLATE.format(
+                total=(total + 59) // 60, consumed=consumed // 60,
+                remain=(remain + 59) // 60,
+            )
+        )
+
+    def _set_aging_enabled(self, enabled: bool) -> None:
+        self._aging_spin.setEnabled(enabled and self._cid != 0)
+        self._aging_apply.setEnabled(enabled and self._cid != 0)
+
+    def _on_aging_apply(self) -> None:
+        """用户修改老化时长：set_duration 保留已老化时间，仅影响剩余。"""
+        if self._closing or self._cid == 0:
+            return
+        new_total_min = int(self._aging_spin.value())
+        self._countdown.set_duration(self._cid, new_total_min * 60)
+        narrative.event(
+            "detail_aging_adjusted",
+            cid=self._cid,
+            minutes=new_total_min,
+            note=f"用户调整 {format_cid(self._cid)} 老化时长为 {new_total_min} 分钟",
+        )
+        self._refresh_aging_display()
 
     # -- closeEvent -----------------------------------------------------------
     def closeEvent(self, event: QCloseEvent) -> None:

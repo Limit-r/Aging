@@ -249,6 +249,15 @@ DETAIL_ACTION_LABELS = (
     DETAIL_ACTION_STOP_TEXT,
 )
 
+# 详情页老化倒计时（按键右侧显示 + 可修改）
+DETAIL_AGING_SECTION_TITLE = "老化倒计时"
+DETAIL_AGING_VALUE_IDLE = "--:--:--"
+DETAIL_AGING_VALUE_RUNNING = "{h:02d}:{m:02d}:{s:02d}"
+DETAIL_AGING_EXPIRED = "已结束"
+DETAIL_AGING_EDIT_PREFIX = "改时(分)"
+DETAIL_AGING_APPLY = "修改"
+DETAIL_AGING_HINT_TEMPLATE = "总 {total} 分钟 · 已老化 {consumed} 分 · 余 {remain} 分"
+
 
 # ---- 顶部导航栏（Phase 4-D）-------------------------------------------------
 # 右侧版本号
@@ -328,6 +337,40 @@ MONITOR_ABNORMAL_FINISH = "监控线程意外结束（可能异常或运行了�
 CELL_MONITOR_OPENING = "…"
 CELL_MONITOR_DONE = "✓"
 CELL_MONITOR_ERROR = "✗"
+
+
+# ---- 系统设置页（设备绑定 + 老化时长）---------------------------------------
+SETTINGS_PAGE_TITLE = "⚙ 系统设置  //  SYSTEM SETTINGS"
+SETTINGS_PAGE_HINT = "所有设置为会话内存，重启自动恢复默认（不落盘）"
+
+# 老化倒计时全局设置
+SETTINGS_AGING_TITLE = "老化倒计时  //  AGING COUNTDOWN"
+SETTINGS_AGING_DEFAULT_HINT_TEMPLATE = "全局默认 {hours} 小时，可修改本轮老化倒计时时长"
+SETTINGS_AGING_LABEL = "老化时长（分钟）"
+SETTINGS_AGING_APPLY = "应用"
+SETTINGS_AGING_RESET = "恢复默认"
+SETTINGS_AGING_APPLIED = "已应用老化时长：{minutes} 分钟（{hours} 小时）"
+SETTINGS_AGING_RESET_DONE = "已恢复默认老化时长：{hours} 小时"
+
+# 电流单元分组（每 6 CH 一组，3×2 布局）
+SETTINGS_CURRENT_UNIT_TITLE = "电流单元分组  //  CURRENT UNITS (3×2)"
+SETTINGS_CURRENT_UNIT_HINT_TEMPLATE = (
+    "每 6 个 CH 绑定一台电流 ESP32 · 按 3 行 × 2 列布局 · 共 {units} 组"
+)
+SETTINGS_UNIT_ID_LABEL = "单元 {u}"
+SETTINGS_UNIT_CIDS_TEMPLATE = "CH-{cids}"
+
+# 摄像头绑定（每 CH 一台 ESP32）
+SETTINGS_CAMERA_TITLE = "摄像头绑定  //  CAMERA BINDING"
+SETTINGS_CAMERA_HINT_TEMPLATE = "每个 CH 位点绑定一台 ESP32 摄像头（默认 CAM-{cid:02d}，可改）"
+SETTINGS_CAMERA_ID_LABEL_TEMPLATE = "CH-{cid:02d}"
+SETTINGS_CAMERA_ID_DEFAULT_TEMPLATE = "CAM-{cid:02d}"
+
+# 分组内部动作
+SETTINGS_RESET_ALL_CAMERAS = "全部摄像头恢复默认"
+SETTINGS_RESET_ALL_UNITS = "全部电流单元恢复默认"
+SETTINGS_RESET_ALL_CAMERAS_DONE = "已恢复全部摄像头默认绑定"
+SETTINGS_RESET_ALL_UNITS_DONE = "已恢复全部电流单元默认分组"
 
 
 # ---- 浮窗层（Phase 4-D）------------------------------------------------------

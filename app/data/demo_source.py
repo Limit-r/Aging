@@ -147,11 +147,17 @@ class DemoDataSource(QObject):
     def _generate_currents(
         self, cid: int, spike_cid: Optional[int] = None,
     ) -> List[float]:
-        """生成 1 个 cell 的 4 路电流（基于基线 + 随机波动）。"""
+        """生成 1 个 cell 的 4 路电流。
+
+        空载语义（与真实 ESP32 一致）：非"运行中" cell 返回 ≈0，
+        使电流检测页的自动老化检测（电流 0→稳定浮动）有意义。
+        """
+        if not hasattr(self, "_running_cids") or cid not in self._running_cids:
+            return [0.0, 0.0, 0.0, 0.0]
         if cid == spike_cid:
             # 制造尖峰：4 路都拉到 5.5~6.0A
             return [round(random.uniform(5.5, 6.0), 2) for _ in range(4)]
-        # 正常：基线 ± 0.15
+        # 正常：基线 ± 0.15（稳定浮动）
         baseline = self._baselines[cid]
         return [
             round(max(0.0, min(5.0, b + random.uniform(-0.15, 0.15))), 2)

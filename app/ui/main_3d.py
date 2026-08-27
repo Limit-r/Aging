@@ -59,6 +59,7 @@ class LEDState(str, Enum):
     PAUSED = "paused"       # 青（已暂停）
     ALERT = "alert"         # 红（异常）
     WARNING = "warning"     # 橙（≤60s 警告）
+    AGING_DONE = "aging_done"  # 高亮蓝（老化倒计时结束，500ms 高亮闪烁）
 
 
 # ---- 3D 场景几何常量 -------------------------------------------------------
@@ -89,6 +90,13 @@ class Rack3DView(QWidget):
         # Phase 3：最近一次 hover 命中的 cid（None = 未命中）
         # 供 HomeDashboard.eventFilter 在 MouseButtonDblClick 时读取
         self._best_hovered_cid: Optional[int] = None
+        # 老化完成闪烁：命中 cid 集合 / 亮暗相位 / 进入闪烁前的原状态
+        self._aging_blink_cids: set = set()
+        self._aging_blink_on = True
+        self._aging_blink_prev: Dict[int, LEDState] = {}
+        self._aging_blink_timer = QTimer(self)
+        self._aging_blink_timer.setInterval(500)
+        self._aging_blink_timer.timeout.connect(self._toggle_aging_blink)
         self._build_ui()
         self._build_scene()
         # 默认所有 LED 设为 OFFLINE
@@ -297,6 +305,40 @@ class Rack3DView(QWidget):
         if self._led_states.get(cid) == state:
             return
         self._led_states[cid] = state
+        self._refresh_led_colors()
+
+    def set_aging_done(self, cid: int, done: bool) -> None:
+        """启动/停止指定 LED 的"老化倒计时结束"高亮蓝闪。
+
+        - done=True  : LED 进入 AGING_DONE 状态，500ms 定时器在亮蓝/暗蓝间切换
+        - done=False : 停止闪烁，恢复进入闪烁前的原 LED 状态
+        """
+        if cid < 1 or cid > GRID_ROWS * GRID_COLS:
+            return
+        if done:
+            if cid not in self._aging_blink_cids:
+                self._aging_blink_prev[cid] = self._led_states.get(
+                    cid, LEDState.OFFLINE,
+                )
+            self._aging_blink_cids.add(cid)
+            self._led_states[cid] = LEDState.AGING_DONE
+            if not self._aging_blink_timer.isActive():
+                self._aging_blink_timer.start()
+        else:
+            self._aging_blink_cids.discard(cid)
+            self._led_states[cid] = self._aging_blink_prev.pop(
+                cid, LEDState.OFFLINE,
+            )
+            if not self._aging_blink_cids:
+                self._aging_blink_timer.stop()
+        self._refresh_led_colors()
+
+    def _toggle_aging_blink(self) -> None:
+        """500ms 亮暗相位切换（仅对老化完成通道生效）。"""
+        if not self._aging_blink_cids:
+            self._aging_blink_timer.stop()
+            return
+        self._aging_blink_on = not self._aging_blink_on
         self._refresh_led_colors()
 
     def flash_led_alert(self, cid: int, duration_ms: int = 200) -> None:
@@ -509,6 +551,7 @@ class Rack3DView(QWidget):
             LEDState.PAUSED: "暂停",
             LEDState.ALERT: "告警",
             LEDState.WARNING: "警告",
+            LEDState.AGING_DONE: "老化完成",
         }.get(state, "未知")
         self._hover_label.setText(f"{format_cid(best_cid)}  ·  {state_name}")
         self._hover_label.adjustSize()
@@ -525,10 +568,18 @@ class Rack3DView(QWidget):
             LEDState.PAUSED:  DEFAULT_TOKENS.colors.LED_PAUSED,
             LEDState.ALERT:   DEFAULT_TOKENS.colors.LED_ALERT,
             LEDState.WARNING: DEFAULT_TOKENS.colors.LED_WARNING,
+            LEDState.AGING_DONE: DEFAULT_TOKENS.colors.LED_AGING_DONE,
         }
+        dim = DEFAULT_TOKENS.colors.LED_AGING_DONE_DIM
         for cid in range(1, GRID_ROWS * GRID_COLS + 1):
-            state = self._led_states[cid]
-            rgba = color_map[state]
+            # 老化完成通道：亮暗相位切换；其他通道用静态状态色
+            if cid in self._aging_blink_cids:
+                rgba = color_map[LEDState.AGING_DONE]\
+                    if self._aging_blink_on else dim
+            else:
+                rgba = color_map.get(
+                    self._led_states[cid], DEFAULT_TOKENS.colors.LED_OFFLINE,
+                )
             # numpy alpha 是 0-1，token 里是 0-255
             self._led_colors[cid - 1] = (
                 rgba[0] / 255.0,

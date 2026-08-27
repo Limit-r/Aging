@@ -35,8 +35,11 @@ from app.core.tokens import DEFAULT_TOKENS
 from app.data.demo_source import DemoDataSource
 from app.data.history_buffer import HistoryBuffer
 from app.observability import get_logger, narrative
-from app.services.cell_controller import CellController
+from app.services.auto_detector import AutoAgingDetector
+from app.services.cell_controller import CellController, DetectionState
 from app.services.cell_ui_manager import CellUIManager
+from app.services.countdown import CountdownService
+from app.services.aging_settings import get_aging_settings
 from app.widgets.cell_grid import CellGrid
 
 
@@ -145,6 +148,10 @@ class CurrentDetectionPage(QWidget):
         self._ui_mgr = CellUIManager()
         # 异常状态缓存
         self._last_visual: dict[int, str] = {}
+        # 老化自动检测 + 每 cell 倒计时
+        self._detector = AutoAgingDetector(parent=self)
+        self._detector.triggered.connect(self._on_auto_triggered)
+        self._countdown = CountdownService(parent=self)
         # 接线
         self._source.batch_reading.connect(self._on_batch_reading)
         self._controller.state_changed.connect(self._on_state_changed)
@@ -154,7 +161,7 @@ class CurrentDetectionPage(QWidget):
         self._source.start()
         narrative.event(
             "current_page_init",
-            note="v3.0 电流检测页 Phase A.8：选区 + 批量工具条 + 4 cell demo",
+            note="v3.0 电流检测页 Phase A.8：选区 + 批量工具条 + 4 cell demo + 老化自动检测",
         )
 
     # -- Phase 3：对外暴露的服务引用（HomePage 用于构造 DetailPage）---------
@@ -170,6 +177,16 @@ class CurrentDetectionPage(QWidget):
     def data_source(self) -> "DemoDataSource":
         return self._source
 
+    @property
+    def countdown_service(self) -> CountdownService:
+        """会话内每 cell 倒计时服务（HomePage 等可复用）。"""
+        return self._countdown
+
+    @property
+    def auto_detector(self) -> AutoAgingDetector:
+        """老化自动检测器（供外部查询/复位）。"""
+        return self._detector
+
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -182,13 +199,13 @@ class CurrentDetectionPage(QWidget):
         # CellGrid
         self._grid = CellGrid(total=total, parent=self)
         self._grid.selection_changed.connect(self._on_selection_changed)
+        self._grid.cell_double_clicked.connect(self._on_cell_double_clicked)
         outer.addWidget(self._grid, 1)
 
     # -- demo ----------------------------------------------------------------
     def _demo_start_initial_cells(self) -> None:
         initial = [1, 2, 3, 4]
-        self._controller.apply("start", initial)
-        self._source.set_running(initial)
+        self._start_detection(initial)
         _log.info("demo: initial cells %s set to RUNNING", initial)
 
     def get_all_visual_states(self) -> "dict[int, str]":
@@ -205,6 +222,8 @@ class CurrentDetectionPage(QWidget):
         for r in readings:
             self._buffer.append(r)
             cid = r.channel_id
+            # 老化自动检测：电流 0→稳定浮动 判定，触发由 _on_auto_triggered 处理
+            self._detector.feed(cid, r.currents)
             det_state = self._controller.state_of(cid).value
             if (det_state in ("running", "paused")
                     and cid in running_cids):
@@ -239,6 +258,52 @@ class CurrentDetectionPage(QWidget):
             self._last_visual[cid] = visual
             self.cell_visual_state.emit(cid, visual)
 
+    # -- 老化自动检测（电流 0→稳定浮动 → 自动开始倒计时）-------------------
+    def _start_detection(self, cids) -> None:
+        """把 cids 置为检测中并启动每 cell 老化倒计时（会话老化时长）。"""
+        transitioned = self._controller.apply("start", cids)
+        if not transitioned:
+            return
+        aging_seconds = get_aging_settings().aging_seconds
+        for cid in transitioned:
+            self._countdown.start(cid, aging_seconds)
+        self._sync_source_running()
+        return transitioned
+
+    def _stop_detection(self, cids) -> None:
+        """把 cids 置为停止并取消倒计时、复位自动检测（允许下次再触发）。"""
+        transitioned = self._controller.apply("stop", cids)
+        for cid in transitioned:
+            self._countdown.cancel(cid)
+            self._detector.reset(cid)
+        if transitioned:
+            self._sync_source_running()
+        return transitioned
+
+    def _sync_source_running(self) -> None:
+        """按 controller 实际状态同步 demo running cells（供异常/空载判定）。"""
+        new_running = {
+            cid for cid in range(1, config.GRID_ROWS * config.GRID_COLS + 1)
+            if self._controller.state_of(cid).value in ("running", "paused")
+        }
+        self._source.set_running(sorted(new_running))
+
+    def _on_auto_triggered(self, cid: int) -> None:
+        """检测到稳定电流：若该 CH 仍为停止态，则自动开始检测 + 倒计时。"""
+        if self._controller.state_of(cid).value != DetectionState.STOPPED.value:
+            _log.debug(
+                "auto_aging skip: cid=CH-%02d already not stopped",
+                cid,
+            )
+            return
+        self._start_detection([cid])
+        _log.info("auto_aging triggered: CH-%02d 开始老化并启动倒计时", cid)
+        narrative.event(
+            "auto_aging_triggered",
+            channels=[cid],
+            note=f"CH-{cid:02d} 检测到稳定电流，自动开始老化并启动倒计时",
+        )
+
     # -- A.8 选区 + 批量 ----------------------------------------------------
     def _on_selection_changed(self, cids: set) -> None:
         self._toolbar.update_selection(len(cids))
@@ -252,18 +317,18 @@ class CurrentDetectionPage(QWidget):
             return
         if not cids:
             return
-        # 实际应用动作
-        transitioned = self._controller.apply(action, cids)
+        if action == "start":
+            transitioned = self._start_detection(cids)
+        elif action == "stop":
+            transitioned = self._stop_detection(cids)
+        else:  # pause / resume：仅切状态，倒计时不因暂停/恢复被取消
+            transitioned = self._controller.apply(action, cids)
+            if transitioned:
+                self._sync_source_running()
         _log.info(
             "toolbar action=%s requested=%d transitioned=%d",
             action, len(cids), len(transitioned),
         )
-        # 同步 demo running cells（让新 RUNNING cells 推数据 + spike 范围更新）
-        new_running = {
-            cid for cid in range(1, config.GRID_ROWS * config.GRID_COLS + 1)
-            if self._controller.state_of(cid).value in ("running", "paused")
-        }
-        self._source.set_running(sorted(new_running))
 
     # -- Esc 清空选区 --------------------------------------------------------
     def keyPressEvent(self, event: QKeyEvent) -> None:
@@ -274,3 +339,14 @@ class CurrentDetectionPage(QWidget):
 
     # -- 异常告警信号（3D LED 联动） -----------------------------------------
     cell_visual_state = pyqtSignal(int, str)
+    # 双击 cell 网格 → 请求打开详情页（emit cid）
+    cell_detail_requested = pyqtSignal(int)
+
+    def _on_cell_double_clicked(self, cid: int) -> None:
+        """双击电流页 CH 卡片 → 通知 HomePage 打开对应详情页。"""
+        narrative.event(
+            "current_cell_direct_open",
+            cid=cid,
+            note=f"用户双击电流页 CH-{cid:02d}，打开详情页",
+        )
+        self.cell_detail_requested.emit(cid)

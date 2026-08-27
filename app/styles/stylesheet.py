@@ -30,6 +30,8 @@ class StylesheetBuilder:
             T.reset_view_button(tokens),
             T.led_dot(tokens),
             T.data_center(tokens),
+            T.settings_page(tokens),
+            T.detail_aging(tokens),
         ))
 
 

@@ -289,6 +289,16 @@ QWidget#dataCell[expired_pending="off"] {{
 QWidget#dataCell[expired_pending="on"][selected="true"] {{
     border: 3px solid {c.TEXT_NEON_GREEN};
 }}
+/* ---- 老化倒计时结束·闪烁高亮蓝灯（on=亮蓝 / off=暗蓝，500ms 间隔）------- */
+QWidget#dataCell[aging_done="on"] {{
+    border: 3px solid {c.TEXT_NEON_BLUE};
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.GRADIENT_AGING_DONE_START}, stop:1 {c.GRADIENT_AGING_DONE_END});
+}}
+QWidget#dataCell[aging_done="off"] {{
+    border: 2px solid {c.GRADIENT_AGING_DONE_BORDER};
+}}
 """
 
 
@@ -1671,3 +1681,207 @@ QLabel#vsSeriesSummary {{
     background: transparent;
 }}
 """
+
+
+# ---- 系统设置页（设备绑定 + 老化时长）-------------------------------------
+def settings_page(t: DesignTokens) -> str:
+    """设置页：老化时长 + 电流单元分组 + 摄像头绑定。"""
+    c, fs, f, s = t.colors, t.font_sizes, t.fonts, t.sizing
+    return f"""
+QWidget#settingsPage {{
+    background-color: {c.BG_DEEP};
+}}
+
+QFrame#settingsToolbar {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_TITLE_BAR}, stop:1 {c.BG_DEEP});
+    border-bottom: 1px solid {c.BORDER_PRIMARY};
+    border-top: 1px solid {rgba(c.BORDER_PRIMARY, 40)};
+}}
+
+QLabel#settingsTitle {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_TITLE};
+    font-size: 14pt;
+    font-weight: bold;
+    letter-spacing: 2px;
+    background: transparent;
+}}
+
+QLabel#settingsHint {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+    background: transparent;
+}}
+
+QScrollArea#settingsScroll {{
+    background-color: {c.BG_DEEP};
+    border: none;
+}}
+QWidget#settingsBody {{
+    background-color: {c.BG_DEEP};
+}}
+
+QFrame#settingsCard {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_CELL_TOP}, stop:1 {c.BG_CELL_BOTTOM});
+    border: 1px solid {c.BORDER_DARK_BLUE};
+    border-radius: {s.RADIUS_LG}px;
+}}
+
+QLabel#settingsCardTitle {{
+    color: {c.TEXT_NEON_GREEN};
+    font-family: {f.FAMILY_TITLE};
+    font-size: {fs.PANEL_TITLE}pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+    background: transparent;
+}}
+
+QLabel#settingsCardHint {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    background: transparent;
+}}
+
+QLabel#settingsFieldLabel {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+    background: transparent;
+}}
+
+QLabel#settingsUnitId {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+    font-weight: bold;
+    background: transparent;
+}}
+
+QLabel#settingsUnitCids {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    background: transparent;
+}}
+
+QLabel#settingsCamLabel {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    background: transparent;
+}}
+
+QLineEdit#settingsEdit, QSpinBox#settingsSpin {{
+    color: {c.TEXT_PRIMARY};
+    background-color: {c.BG_BTN_BOTTOM};
+    border: 1px solid {c.BORDER_DARK_BLUE};
+    border-radius: {s.RADIUS_SM}px;
+    padding: 4px 8px;
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+}}
+QLineEdit#settingsEdit:focus, QSpinBox#settingsSpin:focus {{
+    border-color: {c.BORDER_PRIMARY};
+}}
+QLineEdit#settingsEdit:hover, QSpinBox#settingsSpin:hover {{
+    border-color: {c.BORDER_HOVER};
+}}
+
+QPushButton#settingsApply, QPushButton#settingsReset {{
+    color: {c.TEXT_NEON_CYAN};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: {s.RADIUS_MD}px;
+    padding: 5px 16px;
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+    font-weight: bold;
+    background-color: {rgba(c.BORDER_PRIMARY, 18)};
+}}
+QPushButton#settingsApply:hover, QPushButton#settingsReset:hover {{
+    color: {c.BG_DEEP};
+    background-color: {c.BORDER_PRIMARY};
+}}
+QPushButton#settingsReset {{
+    color: {c.TEXT_SECONDARY};
+    border-color: {c.BORDER_DARK_BLUE};
+    background-color: transparent;
+}}"""
+
+
+# ---- 详情页老化倒计时（按键右侧）----------------------------------------
+def detail_aging(t: DesignTokens) -> str:
+    """详情页底部：老化倒计时显示 + 可修改时长。"""
+    c, fs, f, s = t.colors, t.font_sizes, t.fonts, t.sizing
+    return f"""
+QFrame#detailAgingBox {{
+    background-color: {rgba(c.BG_BTN_BOTTOM, 180)};
+    border: 1px solid {c.BORDER_DARK_BLUE};
+    border-radius: {s.RADIUS_MD}px;
+    padding: 6px 14px;
+}}
+
+QLabel#detailAgingSectionLabel {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+    background: transparent;
+}}
+
+QLabel#detailAgingValue {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.EL}pt;
+    font-weight: bold;
+    background: transparent;
+    letter-spacing: 2px;
+}}
+
+QLabel#detailAgingHint {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    background: transparent;
+}}
+
+QLabel#detailAgingEditLabel {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    background: transparent;
+}}
+
+QSpinBox#detailAgingSpin {{
+    color: {c.TEXT_PRIMARY};
+    background-color: {c.BG_BTN_BOTTOM};
+    border: 1px solid {c.BORDER_DARK_BLUE};
+    border-radius: {s.RADIUS_SM}px;
+    padding: 2px 6px;
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+}}
+
+QPushButton#detailAgingApply {{
+    color: {c.TEXT_NEON_CYAN};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: {s.RADIUS_MD}px;
+    padding: 3px 12px;
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+    font-weight: bold;
+    background-color: {rgba(c.BORDER_PRIMARY, 18)};
+}}
+QPushButton#detailAgingApply:hover {{
+    color: {c.BG_DEEP};
+    background-color: {c.BORDER_PRIMARY};
+}}
+QPushButton#detailAgingApply:disabled {{
+    color: {c.TEXT_DIM};
+    border-color: {c.BORDER_BTN_DISABLED};
+    background-color: transparent;
+}}"""

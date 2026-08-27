@@ -44,6 +44,12 @@ DEFAULT_COUNTDOWN_SECONDS_DETAIL = 30 * 60   # 详情页 spinbox 默认 30 分�
 COUNTDOWN_MAX_SECONDS = 24 * 60 * 60          # spinbox 上限 24h
 COUNTDOWN_WARNING_THRESHOLD_S = 60            # 剩余 ≤60s 进入 warning 状态（黄/橙）
 
+# ---- 老化自动检测（依据：电流从 0 转稳定浮动 → 自动开始倒计时） ----------------
+AUTO_IDLE_CURRENT_A = 0.05      # 电流 ≤ 此值视为"未接入/空闲"（ESP32 空载≈0）
+AUTO_ACTIVE_CURRENT_A = 0.30    # 电流 ≥ 此值视为"已接入/在老化"（稳定浮动）
+AUTO_CONFIRM_FRAMES = 3         # 连续 N 帧有载才触发自动开始，过滤毛刺
+AUTO_REARM_FRAMES = 3           # 连续 N 帧空载后复位该 channel 的检测态（准备再触发）
+
 # ---- 日志 -------------------------------------------------------------------
 LOG_DIR = "logs"
 LOG_LEVEL = "DEBUG"  # DEBUG / INFO / WARNING / ERROR / CRITICAL

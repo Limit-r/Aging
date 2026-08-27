@@ -179,6 +179,12 @@ class DataCell(QWidget):
         self._blink_timer = QTimer(self)
         self._blink_timer.setInterval(500)
         self._blink_timer.timeout.connect(self._toggle_blink)
+        # 老化完成闪烁（高亮蓝灯）：独立于归零闪烁；默认 "none" = 无 QSS 样式
+        self.setProperty("aging_done", "none")
+        self._aging_done = False
+        self._aging_blink_timer = QTimer(self)
+        self._aging_blink_timer.setInterval(500)
+        self._aging_blink_timer.timeout.connect(self._toggle_aging_blink)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         sizing = DEFAULT_TOKENS.sizing
         # Phase A: 缩到小尺寸，让 72 cell 一次显示无滚动
@@ -322,6 +328,33 @@ class DataCell(QWidget):
         current = self.property("expired_pending")
         new = "off" if current == "on" else "on"
         self.setProperty("expired_pending", new)
+        refresh_qss(self)
+
+    @safe_call(context="data_cell.set_aging_done")
+    def set_aging_done(self, done: bool) -> None:
+        """设置/清除"老化倒计时结束"高亮蓝灯闪烁。
+
+        - True  : 启动 500ms 闪烁 timer，边框在蓝亮/暗蓝间切换
+        - False : 停止 timer，恢复"none"（无 QSS 样式，不影响正常状态边框）
+        """
+        if self._aging_done == done:
+            return
+        self._aging_done = done
+        if done:
+            self.setProperty("aging_done", "on")
+            self._aging_blink_timer.start()
+        else:
+            self._aging_blink_timer.stop()
+            self.setProperty("aging_done", "none")
+        refresh_qss(self)
+
+    @safe_call(context="data_cell._toggle_aging_blink")
+    def _toggle_aging_blink(self) -> None:
+        if not self._aging_done:
+            return
+        current = self.property("aging_done")
+        new = "off" if current == "on" else "on"
+        self.setProperty("aging_done", new)
         refresh_qss(self)
 
     selected_changed = pyqtSignal(int, bool)

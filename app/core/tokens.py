@@ -90,6 +90,8 @@ class Colors:
     LED_PAUSED: tuple = (0, 229, 255, 220)      # 霓虹青
     LED_ALERT: tuple = (255, 59, 92, 255)       # 霓虹红
     LED_WARNING: tuple = (255, 174, 66, 255)    # 警告橙（≤60s）
+    LED_AGING_DONE: tuple = (60, 160, 255, 255)     # 高亮蓝（老化倒计时结束·闪烁亮态）
+    LED_AGING_DONE_DIM: tuple = (26, 80, 150, 220)  # 暗蓝（老化完成闪烁·暗态，500ms 间隔）
     LED_SELECTED: tuple = (255, 255, 255, 255)  # 选中态白（叠加层）
     LED_HOVER: tuple = (200, 220, 255, 200)     # hover 高亮
     # 波形图 LED 位点描边色（RGB，多色循环区分不同 LED）
@@ -129,6 +131,10 @@ class Colors:
     GRADIENT_RUNNING_START: str = "rgba(16, 255, 161, 90)"   # 运行态渐变起（绿）
     GRADIENT_RUNNING_END: str = "rgba(16, 200, 130, 70)"     # 运行态渐变末（深绿）
     GRADIENT_RUNNING_BORDER: str = "rgba(16, 255, 161, 110)" # 运行态边框（绿半透明）
+    TEXT_NEON_BLUE: str = "#3ca0ff"                          # 高亮蓝（老化完成闪烁边框）
+    GRADIENT_AGING_DONE_START: str = "rgba(60, 160, 255, 130)"  # 老化完成闪烁渐变起（亮蓝）
+    GRADIENT_AGING_DONE_END: str = "rgba(30, 90, 200, 100)"     # 老化完成闪烁渐变末（深蓝）
+    GRADIENT_AGING_DONE_BORDER: str = "rgba(60, 160, 255, 120)" # 老化完成闪烁边框（暗蓝）
     GRADIENT_ALERT_BG_START: str = "rgba(80, 18, 36, 200)"   # 告警背景渐变起（深红）
     GRADIENT_ALERT_BG_END: str = "rgba(40, 8, 18, 200)"      # 告警背景渐变末（更深红）
     GRADIENT_ALERT_BG_HOVER_START: str = "rgba(120, 30, 50, 220)"  # 告警 hover 起
@@ -178,6 +184,7 @@ class FontSizes:
     LG: int = 12
     XL: int = 13
     XXL: int = 16
+    EL: int = 20   # 特大（详情页老化倒计时等需要醒目的数值）
     TITLE: int = 16
     ACCENT: int = 11
     PANEL_TITLE: int = 13
@@ -258,7 +265,7 @@ class Sizing:
 
     # ---- 详情页（Phase 3 优化新增）-----------------------------------------
     DETAIL_HEADER_H: int = 56
-    DETAIL_ACTIONS_H: int = 96
+    DETAIL_ACTIONS_H: int = 112
     DETAIL_MARGIN: int = 16            # root 边距
     DETAIL_SPACING: int = 12           # root 内子项间距
     DETAIL_HEADER_MARGIN_H: int = 16   # header layout 左右边距

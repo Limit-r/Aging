@@ -407,10 +407,11 @@ class HomePage(QMainWindow):
         self._router = PageRouter()
         self._dashboard = HomeDashboard()
         self._current_page = CurrentDetectionPage()  # 保留引用（A.7 联动需要）
-        # Phase 3：详情页（双击 LED 打开，从 current_page 拿 controller/buffer 引用）
+        # Phase 3：详情页（双击 LED 打开，从 current_page 拿 controller/buffer/countdown 引用）
         self._detail_page = DetailPage(
             history=self._current_page.history_buffer,
             cell_controller=self._current_page.cell_controller,
+            countdown_service=self._current_page.countdown_service,
         )
         self._router.register("home", self._dashboard)
         self._router.register("current", self._current_page)
@@ -426,6 +427,8 @@ class HomePage(QMainWindow):
         self._dashboard._on_open_detail_callback = self._on_open_detail
         self._detail_page.requested_back.connect(self._on_detail_back)
         self._detail_page.action_requested.connect(self._on_detail_action)
+        # 电流页双击 CH 卡片 → 打开对应详情页（与 3D 双击同一入口）
+        self._current_page.cell_detail_requested.connect(self._on_open_detail)
         # 视频总览双击位点 → 切到视频流检测页
         self._video_page.open_stream_requested.connect(self._on_open_video_stream)
         self._video_stream_page.requested_back.connect(self._on_video_stream_back)
@@ -458,6 +461,10 @@ class HomePage(QMainWindow):
         # 原代码：HUD 只在 __init__ 时被设为 0/0/72，从不更新
         self._current_page.cell_controller.state_changed.connect(
             self._on_cell_state_for_hud
+        )
+        # 老化倒计时结束 → 主页呼吸灯 + 电流页 CH 卡片 高亮蓝闪
+        self._current_page.countdown_service.expired.connect(
+            self._on_aging_expired
         )
         # 同步初始状态（demo 默认启动 1-4）
         self._refresh_hud_counts()
@@ -571,6 +578,22 @@ class HomePage(QMainWindow):
     def _on_cell_state_for_hud(self, cid: int, old: str, new: str) -> None:
         """任意 cell 状态变化 → 重算 HUD 三项计数。"""
         self._refresh_hud_counts()
+
+    def _on_aging_expired(self, cid: int) -> None:
+        """老化倒计时结束 → 对应通道高亮蓝灯闪烁。
+
+        逐通道联动两处：
+        - 主页 3D 机柜 LED：从原状态切换为 AGING_DONE 蓝闪
+        - 电流页对应 CH 卡片：DataCell 蓝色闪烁（500ms 亮/暗切换）
+        """
+        try:
+            self._dashboard.rack_view.set_aging_done(cid, True)
+            cell = self._current_page._grid.cell(cid)
+            if cell is not None:
+                cell.set_aging_done(True)
+            _log.info("aging expired: cid=%d → 主页LED + 电流卡片 蓝色闪烁", cid)
+        except Exception as e:  # noqa: BLE001  联动失败不阻断倒计时流程
+            _log.error("_on_aging_expired failed (cid=%s): %r", cid, e, exc_info=True)
 
     def _refresh_hud_counts(self) -> None:
         """从 CellController 读最新计数 → 推送给 HomeDashboard HUD。"""

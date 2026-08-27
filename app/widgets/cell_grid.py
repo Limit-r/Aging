@@ -36,6 +36,8 @@ class CellGrid(QWidget):
 
     # 选区变化信号（emit 选中的 cid 集合）
     selection_changed = pyqtSignal(set)
+    # 双击 cell → 打开详情页（emit cid）
+    cell_double_clicked = pyqtSignal(int)
 
     def __init__(
         self,
@@ -121,6 +123,22 @@ class CellGrid(QWidget):
         self._apply_selection_visual()
         self.selection_changed.emit(set(self._selection))
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        """双击 cell → 打开对应详情页（与 3D 视图双击语义一致）。
+
+        命中点常落在 cell 内部子控件（QLabel 等）上，需沿父链向上定位到 DataCell，
+        否则"时灵时不灵"（只有点到 cell 空白处才生效）。
+        """
+        widget = self.childAt(event.pos())
+        while widget is not None and widget is not self \
+                and not isinstance(widget, DataCell):
+            widget = widget.parentWidget()
+        if isinstance(widget, DataCell):
+            self.cell_double_clicked.emit(widget.cell_id)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     # -- 视觉同步 ------------------------------------------------------------
     def _apply_selection_visual(self) -> None:
