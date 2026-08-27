@@ -71,7 +71,10 @@ READ_BUF_SIZE = 3
 FLASH_DEBOUNCE_FRAMES = 8
 # 多视频流并发检测上限（决定单次 YOLO batch 的最大规模）。
 # 8GB 显存建议 2，谨慎可 3；超过后新的 detect 会被拒绝并返回 error 事件。
-MAX_CONCURRENT_STREAMS = 2
+# 提升到 8：配合「电流运行通道自动拉起视频检测」的联动（电流多路并发需更高
+# 上限）。这些流共享同一次 detect_batch，并非线性耗显存。若未来需要 54 路级
+# 后台负载，应改用低帧率 320×320 的 monitor 路径而非交互流。
+MAX_CONCURRENT_STREAMS = 8
 # ---- 54 路静默集中监控（monitor） ----
 MONITOR_MAX_STREAMS = 54           # 一次最多同时监控的设备视频路数
 MONITOR_WORKERS = 12               # 保留（接口兼容量）；NMS 后处理现按串行执行（GIL 下线程池反更慢）

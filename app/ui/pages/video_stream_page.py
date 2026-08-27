@@ -39,6 +39,7 @@ from app.core.tokens import DEFAULT_TOKENS
 from app.observability import get_logger, narrative
 from app.services.channel_video_registry import get_channel_video_registry
 from app.ui.vision_worker import get_vision_worker
+from app.ui.qss_utils import refresh_qss
 
 _S = DEFAULT_TOKENS.sizing
 _C = DEFAULT_TOKENS.colors
@@ -363,6 +364,7 @@ class VideoStreamPage(QWidget):
         # 检测状态指示：运行中 / 已暂停
         self._status = QLabel(labels.VIDEO_DETECT_STATUS_IDLE)
         self._status.setObjectName("vsDetectStatus")
+        self._status.setProperty("state", "idle")
         bl.addWidget(self._status)
         outer.addWidget(bar)
 
@@ -390,6 +392,11 @@ class VideoStreamPage(QWidget):
         self._video.setObjectName("vsVideo")
         self._video.setAlignment(Qt.AlignCenter)
         self._video.setWordWrap(True)
+        # 暂停角标：作为预览子控件，叠加在冻结帧左上角，明确提示「已暂停」
+        self._pause_badge = QLabel(labels.VIDEO_DETECT_STATUS_PAUSED, self._video)
+        self._pause_badge.setObjectName("vsPauseBadge")
+        self._pause_badge.setAlignment(Qt.AlignCenter)
+        self._pause_badge.hide()
         vv.addWidget(self._video, 0, Qt.AlignCenter)
         vv.addStretch(1)
         wh.addLayout(vv, 0)
@@ -430,6 +437,8 @@ class VideoStreamPage(QWidget):
         max_h = _S.VIDEO_PREVIEW_MAX_H
         scale = min(max_w / w, max_h / h, 1.0)
         self._video.setFixedSize(int(w * scale), int(h * scale))
+        self._pause_badge.adjustSize()
+        self._pause_badge.move(6, 6)
         self._video.setPixmap(QPixmap())  # 清空旧图避免残留拉伸
 
     # -- worker 事件（来自全局单例）-----------------------------------------
@@ -442,6 +451,7 @@ class VideoStreamPage(QWidget):
         self._result.set_message(
             message or labels.VIDEO_CELL_STATE_ERROR)
         self._finish_run()
+        self._set_detect_status("error", labels.VIDEO_DETECT_STATUS_ERROR)
 
     def _on_worker_event(self, payload: dict) -> None:
         ptype = payload.get("type")
@@ -468,10 +478,13 @@ class VideoStreamPage(QWidget):
             self._result.set_message(
                 payload.get("message") or labels.VIDEO_CELL_STATE_ERROR)
             self._finish_run()
+            self._set_detect_status("error", labels.VIDEO_DETECT_STATUS_ERROR)
 
     # -- 工具条动作 ---------------------------------------------------------
     def _on_back(self) -> None:
-        self._stop_detection()
+        # 返回总览：若该通道仍由电流驱动运行，则保留后台检测持续统计（不看也累计），
+        # 仅复位本页展示；否则按普通停止释放。
+        self._leave_channel()
         self.requested_back.emit()
 
     def _on_import(self) -> None:
@@ -491,20 +504,28 @@ class VideoStreamPage(QWidget):
     def _on_start(self) -> None:
         if self._video_path is None or self._cid is None or self._running:
             return
+        # 视频检测默认跟随电流：仅当该通道处于电流检测「运行/暂停」集合时才启动，
+        # 保证「电流启动哪个通道，就开哪路视频检测」一一对应，杜绝把电流未运行的
+        # 通道（如从总览双击进入）也拉起来。
+        reg = get_channel_video_registry()
+        if self._cid not in reg.current_running_cids():
+            self._result.set_message(labels.VIDEO_NEED_CURRENT_RUNNING)
+            self._set_detect_status("idle", labels.VIDEO_NEED_CURRENT_RUNNING)
+            return
         self._wm.ensure_started()
         self._video.setText(labels.VIDEO_PANEL_LOADING)
         self._btn_start.setEnabled(False)
         self._btn_stop.setEnabled(True)
         self._running = True
         self._paused = get_channel_video_registry().is_paused(self._cid)
-        self._refresh_pause_ui()
         self._wm.send({"cmd": "detect", "job": self._cid,
                        "video": self._video_path, "outdir": str(self._outdir),
                        "loop": True,
                        "paused": self._paused})
-        self._refresh_timer.start()
         narrative.event(
             "video_stream_start", note=f"CH-{self._cid:02d} 循环检测启动")
+        # 运行中→启动缩略图刷新；暂停开流→冻结预览并显示角标（勿先启定时器）
+        self._refresh_pause_ui()
 
     def _on_stop(self) -> None:
         self._stop_detection(mark_idle=True)
@@ -529,20 +550,42 @@ class VideoStreamPage(QWidget):
             self._refresh_pause_ui()
             self.action_requested.emit("pause")
 
+    def _set_detect_status(self, state: str, text: str) -> None:
+        """刷新检测状态指示（文本 + `[state]` QSS 颜色）。"""
+        self._status.setText(text)
+        self._status.setProperty("state", state)
+        refresh_qss(self._status)
+
+    def _set_pause_badge(self, show: bool, text: Optional[str] = None) -> None:
+        """控制暂停角标显隐，并保持在预览左上角。"""
+        if text is not None:
+            self._pause_badge.setText(text)
+        if show:
+            self._pause_badge.adjustSize()
+            self._pause_badge.move(6, 6)
+        self._pause_badge.setVisible(show)
+
     def _refresh_pause_ui(self) -> None:
-        """按当前 _running/_paused 刷新暂停按钮文案与检测状态指示。"""
+        """按当前 _running/_paused 刷新暂停按钮、状态颜色与预览冻结。"""
         if not self._running:
             self._btn_pause.setEnabled(False)
-            self._status.setText(labels.VIDEO_DETECT_STATUS_IDLE)
+            self._set_detect_status("idle", labels.VIDEO_DETECT_STATUS_IDLE)
+            self._set_pause_badge(False)
             return
         self._btn_pause.setEnabled(True)
         if self._paused:
+            # 已暂停：冻结最后一帧（停缩略图刷新，避免陈旧帧覆盖暂停提示）
+            # 并在预览左上角叠加「已暂停」角标，明确暂停反馈。
             self._btn_pause.setText(labels.VIDEO_TOOLBAR_BTN_RESUME)
-            self._status.setText(labels.VIDEO_DETECT_STATUS_PAUSED)
-            self._video.setText(labels.VIDEO_DETECT_STATUS_PAUSED)
+            self._set_detect_status("paused", labels.VIDEO_DETECT_STATUS_PAUSED)
+            self._set_pause_badge(True)
+            self._stop_timer()
         else:
             self._btn_pause.setText(labels.VIDEO_TOOLBAR_BTN_PAUSE)
-            self._status.setText(labels.VIDEO_DETECT_STATUS_RUNNING)
+            self._set_detect_status("running", labels.VIDEO_DETECT_STATUS_RUNNING)
+            self._set_pause_badge(False)
+            if not self._refresh_timer.isActive():
+                self._refresh_timer.start()
 
     def _stop_detection(self, mark_idle: bool = False) -> None:
         if self._cid is not None and self._running:
@@ -554,6 +597,26 @@ class VideoStreamPage(QWidget):
         self._refresh_pause_ui()
         if not mark_idle:
             self._btn_start.setEnabled(bool(self._video_path))
+
+    def _leave_channel(self) -> None:
+        """切走/关闭检测页：仅在电流不运行该通道时才真正停流。
+
+        若该通道仍处于「电流运行/暂停」集合中，则后台视频检测必须持续（电流
+        驱动启停、不看也统计），这里只复位本页展示状态；否则按普通停止释放。
+        """
+        cid = self._cid
+        running = cid is not None and self._running
+        if running:
+            reg = get_channel_video_registry()
+            if cid in reg.current_running_cids():
+                # 电流仍在跑该通道：保留后台流，仅清空本页展示
+                self._running = False
+                self._paused = False
+                self._stop_timer()
+                self._btn_stop.setEnabled(False)
+                self._refresh_pause_ui()
+                return
+        self._stop_detection()
 
     def _finish_run(self) -> None:
         self._running = False
@@ -584,7 +647,7 @@ class VideoStreamPage(QWidget):
     # -- 公共 API / 生命周期 --------------------------------------------------
     def set_channel(self, cid: int, video_path: Optional[str] = None) -> None:
         """设置频道；若带 video_path（来自静默监控单击），直接载入并开始实时检测。"""
-        self._stop_detection()
+        self._leave_channel()
         self._cid = cid
         self._title.setText(labels.VIDEO_STREAM_TITLE_TEMPLATE.format(cid=cid))
         if video_path:
@@ -607,6 +670,7 @@ class VideoStreamPage(QWidget):
             _log.info("video stream set channel: CH-%02d", cid)
 
     def closeEvent(self, event) -> None:
-        # 仅停止当前检测；worker 为全局单例，由 HomePage 在应用退出时统一关闭
-        self._stop_detection()
+        # 若当前通道仍由电流驱动运行，则保留后台检测流（持续统计），仅复位展示；
+        # 否则停流释放。worker 为全局单例，由 HomePage 在应用退出时统一关闭。
+        self._leave_channel()
         event.accept()

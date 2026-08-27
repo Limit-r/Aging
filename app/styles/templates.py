@@ -1579,6 +1579,200 @@ QLabel#videoCellHint {{
     background: transparent;
 }}
 
+/* ---- 视频流监控页 v3.1 美化：工具条 + KPI + 状态徽标 ---- */
+
+/* 标题区：主标题 + 副标题（主标题霓虹青加粗大号，副标题次级色小号） */
+QLabel#videoTitle {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_TITLE};
+    font-size: 18pt;
+    font-weight: bold;
+    letter-spacing: 2px;
+    background: transparent;
+}}
+QLabel#videoTitleSub {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: 10pt;
+    background: transparent;
+}}
+QLabel#videoHint {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    background: transparent;
+}}
+
+/* 工具条按钮：药丸形 + 描边，主操作用霓虹青渐变 */
+QPushButton#videoBtn {{
+    color: {c.TEXT_PRIMARY};
+    background-color: transparent;
+    border: 1px solid {c.BORDER_DARK_BLUE};
+    border-radius: 14px;
+    padding: 6px 16px;
+    font-family: {f.FAMILY_MONO};
+    font-size: 10pt;
+}}
+QPushButton#videoBtn:hover {{
+    color: {c.TEXT_NEON_CYAN};
+    border-color: {c.BORDER_HOVER};
+    background-color: rgba(0, 229, 255, 18);
+}}
+QPushButton#videoBtn:disabled {{
+    color: {c.TEXT_DIM};
+    border-color: {c.BORDER_BTN_DISABLED};
+    background-color: transparent;
+}}
+QPushButton#videoBtnAccent {{
+    color: {c.TEXT_NEON_CYAN};
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(0, 191, 255, 50), stop:1 rgba(0, 229, 255, 70));
+    border: 1px solid {c.BORDER_HOVER};
+    border-radius: 14px;
+    padding: 6px 18px;
+    font-family: {f.FAMILY_MONO};
+    font-size: 10pt;
+    font-weight: bold;
+}}
+QPushButton#videoBtnAccent:hover {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(0, 191, 255, 80), stop:1 rgba(0, 229, 255, 110));
+}}
+QPushButton#videoBtnAccent:disabled {{
+    color: {c.TEXT_DIM};
+    border-color: {c.BORDER_BTN_DISABLED};
+    background-color: transparent;
+}}
+
+/* 4 张 KPI 玻璃卡片：标题小号 + 数字大号霓虹色 + 单位 50% 字号 */
+QFrame#kpiCard {{
+    background-color: {c.KPI_BG};
+    border: 1px solid {c.KPI_BORDER};
+    border-radius: 8px;
+}}
+QFrame#kpiCard:hover {{
+    background-color: {c.KPI_BG_HOVER};
+}}
+QLabel#kpiTitle {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    background: transparent;
+}}
+QLabel#kpiValue {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_TITLE};
+    font-size: 22pt;
+    font-weight: bold;
+    background: transparent;
+}}
+QLabel#kpiUnit {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: 11pt;
+    background: transparent;
+}}
+/* KPI 4 张卡片强调色：按 [kind] 属性切换数字/边框光晕 */
+QFrame#kpiCard[kind="running"] {{
+    border-color: {c.KPI_ACCENT_GREEN};
+}}
+QLabel#kpiValue[kind="running"] {{ color: {c.TEXT_NEON_GREEN}; }}
+QFrame#kpiCard[kind="paused"] {{
+    border-color: {c.KPI_ACCENT_CYAN};
+}}
+QLabel#kpiValue[kind="paused"] {{ color: {c.TEXT_NEON_CYAN}; }}
+QFrame#kpiCard[kind="error"] {{
+    border-color: {c.KPI_ACCENT_AMBER};
+}}
+QLabel#kpiValue[kind="error"] {{ color: {c.TEXT_COUNTDOWN_WARNING}; }}
+QFrame#kpiCard[kind="total"] {{
+    border-color: {c.KPI_ACCENT_NEUTRAL};
+}}
+QLabel#kpiValue[kind="total"] {{ color: {c.TEXT_PRIMARY}; }}
+
+/* 位点单元 v3.1：圆角 12 + 上下渐变 + 按 [status] 切换描边色 */
+QFrame#videoCell {{
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 {c.BG_CELL_TOP}, stop:1 {c.BG_CELL_BOTTOM});
+    border: 1px solid {c.BORDER_OFFLINE};
+    border-radius: 12px;
+}}
+QFrame#videoCell:hover {{
+    border-color: {c.BORDER_HOVER};
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 rgba(74, 217, 255, 12), stop:1 rgba(74, 217, 255, 6));
+}}
+QFrame#videoCell[status="opening"] {{
+    border-color: {c.CELL_DOT_OPENING};
+}}
+QFrame#videoCell[status="running"] {{
+    border-color: {c.CELL_DOT_RUNNING};
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 rgba(16, 255, 161, 18), stop:1 rgba(16, 255, 161, 8));
+}}
+QFrame#videoCell[status="paused"] {{
+    border-color: {c.CELL_DOT_PAUSED};
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 rgba(0, 229, 255, 18), stop:1 rgba(0, 229, 255, 8));
+}}
+QFrame#videoCell[status="error"] {{
+    border-color: {c.CELL_DOT_ERROR};
+}}
+QFrame#videoCell[status="done"] {{
+    border-color: {c.BORDER_NO_DATA};
+}}
+
+/* 单元内 CH-XX 头部：大号霓虹青粗体 */
+QLabel#videoCellHeader {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_MONO};
+    font-size: 16pt;
+    font-weight: bold;
+    background: transparent;
+}}
+/* 中部主位点字符：占位大圆点 */
+QLabel#videoCellMark {{
+    color: {c.TEXT_SECONDARY};
+    font-family: {f.FAMILY_TITLE};
+    font-size: 30pt;
+    background: transparent;
+}}
+/* 监控中数字摘要：紧凑、深色背景、半透明 */
+QLabel#videoCellMonitor {{
+    color: {c.TEXT_PRIMARY};
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    background: transparent;
+}}
+/* 底部"双击进入 ↗"提示：次级色 + 加大间距 */
+QLabel#videoCellHint {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: 9pt;
+    background: transparent;
+}}
+
+/* 右上 8x8 圆点状态徽标：固定大小、贴右上角（位于 cell 内 QLabel） */
+QLabel#videoCellDot {{
+    border-radius: 4px;
+    min-width: 8px;
+    max-width: 8px;
+    min-height: 8px;
+    max-height: 8px;
+    background-color: {c.CELL_DOT_IDLE};
+    border: none;
+}}
+QLabel#videoCellDot[status="opening"] {{ background-color: {c.CELL_DOT_OPENING}; }}
+QLabel#videoCellDot[status="running"]  {{ background-color: {c.CELL_DOT_RUNNING}; }}
+QLabel#videoCellDot[status="paused"]   {{ background-color: {c.CELL_DOT_PAUSED}; }}
+QLabel#videoCellDot[status="error"]    {{ background-color: {c.CELL_DOT_ERROR}; }}
+
 /* ---- 视频流检测页：单通道 ---- */
 QWidget#videoStreamPage {{
     background-color: {c.BG_DEEP};
@@ -1647,11 +1841,26 @@ QLabel#vsStats {{
 }}
 
 QLabel#vsDetectStatus {{
-    color: {c.TEXT_NEON_CYAN};
     font-family: {f.FAMILY_MONO};
     font-size: {fs.MD}pt;
     font-weight: bold;
     background: transparent;
+}}
+QLabel#vsDetectStatus[state="idle"] {{ color: {c.TEXT_SECONDARY}; }}
+QLabel#vsDetectStatus[state="running"] {{ color: {c.TEXT_NEON_GREEN}; }}
+QLabel#vsDetectStatus[state="paused"] {{ color: {c.TEXT_NEON_CYAN}; }}
+QLabel#vsDetectStatus[state="error"] {{ color: {c.TEXT_DANGER}; }}
+
+/* 暂停角标：叠加在视频预览左上角，覆盖在冻结帧之上 */
+QLabel#vsPauseBadge {{
+    color: {c.TEXT_NEON_CYAN};
+    background-color: {c.BG_DEEP};
+    border: 1px solid {c.TEXT_NEON_CYAN};
+    border-radius: {s.RADIUS_SM}px;
+    padding: 3px 10px;
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+    font-weight: bold;
 }}
 
 /* 检测结果面板：FP / A / 其他 各系列闪烁折线图 */

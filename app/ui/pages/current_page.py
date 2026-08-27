@@ -318,12 +318,18 @@ class CurrentDetectionPage(QWidget):
         return transitioned
 
     def _sync_source_running(self) -> None:
-        """按 controller 实际状态同步 demo running cells（供异常/空载判定）。"""
+        """按 controller 实际状态同步 demo running cells（供异常/空载判定）。
+
+        同时把「电流运行/暂停」通道全集登记到通道视频注册表，作为检测页判断
+        「切走/关闭时是否保留该通道后台视频检测」的依据（保留则后台持续累计）。
+        """
         new_running = {
             cid for cid in range(1, config.GRID_ROWS * config.GRID_COLS + 1)
             if self._controller.state_of(cid).value in ("running", "paused")
         }
         self._source.set_running(sorted(new_running))
+        from app.services.channel_video_registry import get_channel_video_registry
+        get_channel_video_registry().set_current_running(list(new_running))
 
     def _on_auto_triggered(self, cid: int) -> None:
         """检测到稳定电流：若该 CH 仍为停止态，则自动开始检测 + 倒计时。"""

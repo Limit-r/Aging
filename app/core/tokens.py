@@ -163,6 +163,23 @@ class Colors:
     RESET_BTN_BG_HOVER: str = "rgba(20, 30, 50, 220)"          # hover 时略亮
     RESET_BTN_BORDER: str = "rgba(60, 80, 120, 140)"           # 同 FLOATER_BORDER_NEUTRAL
 
+    # ---- 视频流监控页：玻璃面板 + KPI 卡片 + 状态徽标（v3.1 美化）------------
+    # 4 张 KPI 卡片：运行/暂停/出错/总计，用霓虹强调色 + 柔和发光
+    KPI_BG: str = "rgba(20, 30, 50, 160)"                  # 玻璃面板底色
+    KPI_BG_HOVER: str = "rgba(28, 40, 64, 200)"            # hover 时略亮
+    KPI_BORDER: str = "rgba(74, 217, 255, 60)"             # 卡片柔和发光边框（青）
+    # 4 个 KPI 各自强调色（边框/数字）
+    KPI_ACCENT_CYAN: str = "rgba(0, 229, 255, 180)"        # 暂停（霓虹青）
+    KPI_ACCENT_GREEN: str = "rgba(16, 255, 161, 180)"      # 运行（霓虹绿）
+    KPI_ACCENT_AMBER: str = "rgba(255, 174, 66, 180)"      # 出错（橙）
+    KPI_ACCENT_NEUTRAL: str = "rgba(122, 139, 168, 180)"   # 总计（次级灰蓝）
+    # 位点单元状态徽标（右上 8x8 圆点 + 描边色，按 cell 状态）
+    CELL_DOT_IDLE: str = "rgba(122, 139, 168, 180)"
+    CELL_DOT_OPENING: str = "rgba(60, 160, 255, 220)"
+    CELL_DOT_RUNNING: str = "rgba(16, 255, 161, 220)"
+    CELL_DOT_PAUSED: str = "rgba(0, 229, 255, 220)"
+    CELL_DOT_ERROR: str = "rgba(255, 59, 92, 220)"
+
 
 @dataclass(frozen=True)
 class Fonts:
