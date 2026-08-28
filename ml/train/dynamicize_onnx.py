@@ -114,10 +114,12 @@ def verify(src, batch_sizes=(1, 4, 16)):
     inp = sess.get_inputs()[0]
     if inp.shape[0] != "N":
         print(f"[dynamicize] 警告: input batch 非动态: {inp.shape}")
+    # 输入尺寸从模型读取（512² / 320² 通用），不再硬编码
+    ih, iw = int(inp.shape[2]), int(inp.shape[3])
     rng = np.random.default_rng(0)
     ok = True
     for B in batch_sizes:
-        x = rng.random((B, 3, 512, 512), dtype=np.float32)
+        x = rng.random((B, 3, ih, iw), dtype=np.float32)
         dbox, cls = sess.run(None, {inp.name: x})
         if dbox.shape[0] != B or cls.shape[0] != B:
             print(f"[dynamicize] FAIL batch={B}: {dbox.shape} {cls.shape}")

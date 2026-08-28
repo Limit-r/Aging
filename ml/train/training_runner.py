@@ -10,10 +10,11 @@
 （weights/MERGED、datasets/merged/...）是相对 ML 根解析的。
 
 可根据 STAGE 组合一/多步，供「一键完整流程」串行调用：
-    DATA   -> train.gen_merged_txt                生成统一 9 类标注 txt
-    YOLO   -> train.train_merged                 训练统一 YOLOv8 检测模型
-    ROI    -> classifier.prepare_data_merged      合并 FP/A ROI 数据
-    CLS    -> classifier.train_merged             训练统一 TinyConv 二分类器
+    DATA     -> train.gen_merged_txt                生成统一 9 类标注 txt
+    YOLO     -> train.train_merged                 训练统一 YOLOv8 检测模型
+    ROI      -> classifier.prepare_data_merged      合并 FP/A ROI 数据
+    CLS      -> classifier.train_merged             训练统一 TinyConv 二分类器
+    CONVERT  -> train.run_quant_convert             量化转换（FP32 → PTQ INT8 ONNX → 动态 batch）
 """
 import os
 import subprocess
@@ -42,6 +43,7 @@ def build_cmd(stage: str, params: dict = None) -> list:
       YOLO: epochs / batch / lr / phi
       ROI : 无
       CLS : epochs / batch / lr
+      CONVERT: 无
     """
     params = params or {}
     py = _py()
@@ -73,6 +75,9 @@ def build_cmd(stage: str, params: dict = None) -> list:
         if params.get("lr") is not None:
             cmd += ["--lr", str(params["lr"])]
         return cmd
+
+    if stage == "CONVERT":
+        return [py, _abs("train/run_quant_convert.py")]
 
     raise ValueError("未知训练阶段: %s" % stage)
 
@@ -107,5 +112,5 @@ def run(cmd: list, on_line=None):
 if __name__ == "__main__":
     # 冒烟：打印各阶段命令行（不实际执行）
     print(PROJECT_ROOT)
-    for st in ("DATA", "YOLO", "ROI", "CLS"):
+    for st in ("DATA", "YOLO", "ROI", "CLS", "CONVERT"):
         print(st, "->", build_cmd(st))

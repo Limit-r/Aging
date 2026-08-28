@@ -292,6 +292,7 @@ class DataCenterPage(QWidget):
             (labels.TRAIN_BTN_TRAIN_YOLO, lambda: self._train_run(["YOLO"])),
             (labels.TRAIN_BTN_MERGE_ROI, lambda: self._train_run(["ROI"])),
             (labels.TRAIN_BTN_TRAIN_CLS, lambda: self._train_run(["CLS"])),
+            (labels.TRAIN_BTN_CONVERT, lambda: self._train_run(["CONVERT"])),
         ):
             act = adv_menu.addAction(text)
             act.triggered.connect(fn)
@@ -361,8 +362,8 @@ class DataCenterPage(QWidget):
         return auto_params.recommend(env, ds)
 
     def _train_run_all(self) -> None:
-        """一键完整流程：DATA → YOLO → ROI → CLS 串行。"""
-        self._train_run(["DATA", "YOLO", "ROI", "CLS"])
+        """一键完整流程：DATA → YOLO → ROI → CLS → CONVERT 串行。"""
+        self._train_run(["DATA", "YOLO", "ROI", "CLS", "CONVERT"])
 
     def _train_run(self, stages) -> None:
         """启动一串训练阶段；自动模式下若尚未探测环境，先探测再启动。
@@ -383,13 +384,14 @@ class DataCenterPage(QWidget):
         self._start_run(stages)
 
     def _train_precheck(self, stages) -> bool:
-        """数据集前置校验：YOLO/CLS/一键需数据可用，DATA 阶段跳过。
+        """数据集前置校验：YOLO/CLS/转换/一键需数据可用，DATA 阶段跳过。
 
         返回 False 时已阻断（弹框 + 写日志），调用方不再启动。
         """
         first = stages[0] if stages else ""
         from ml.train import auto_params
         kind = "DATA" if first == "DATA" else "CLS" if first == "CLS" \
+            else "CONVERT" if first == "CONVERT" \
             else "ONECLICK" if len(stages) > 1 else "YOLO"
         ok, reason = auto_params.validate_for_training(kind)
         if ok:

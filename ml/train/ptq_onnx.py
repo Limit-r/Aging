@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """PTQ（训练后量化）→ QDQ ONNX INT8 导出。
 
-与 QAT 不同，PTQ 无需重训。基于已训好的 FP32 模型（weights/MERGED_CMP_FP32），
+与 QAT 不同，PTQ 无需重训。基于已训好的 FP32 模型（weights/MERGED），
 利用 backbone/neck 卷积量化（激活 per-tensor INT8、权重 per-channel INT8，SiLU/DFL 保持 FP32）
 做一次前向校准统计激活/权重的量化范围，再 convert_pt2e 得到 QDQ 图，导出 ONNX INT8。
 
@@ -10,7 +10,7 @@
 
 用法（在 ml/ 下运行）：
   E:\\MiniConda\\envs\\Aging\\python.exe train/ptq_onnx.py \
-      --fp32 weights/MERGED_CMP_FP32/best_epoch_weights.pth \
+      --fp32 weights/MERGED/best_epoch_weights.pth \
       --out deploy/yolo_ptq_int8.onnx
 """
 import sys
@@ -88,7 +88,7 @@ def load_fp32_weights(model, ckpt_path):
 
 def main():
     ap = argparse.ArgumentParser(description="PTQ -> QDQ ONNX INT8 导出")
-    ap.add_argument("--fp32", default="weights/MERGED_CMP_FP32/best_epoch_weights.pth")
+    ap.add_argument("--fp32", default="weights/MERGED/best_epoch_weights.pth")
     ap.add_argument("--calib-txt", default="datasets/merged/2025_val.txt")
     ap.add_argument("--calib-images", type=int, default=64,
                     help="用前 N 张 val 图做校准（覆盖各亮度档位）")

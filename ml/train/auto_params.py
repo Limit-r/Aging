@@ -139,9 +139,10 @@ def validate_for_training(kind: str = "YOLO") -> Tuple[bool, str]:
     供训练页在启动 YOLO / CLS / 一键流程前调用，避免跑空失败。
 
     kind:
-      "YOLO" -> 要求统一数据 train.txt 存在且含有效框
-      "CLS"  -> 要求统一 train 已有图（分类器复用其框做 ROI 裁剪）
-      "DATA" -> 跳过校验（该阶段正是生成数据）
+      "YOLO"    -> 要求统一数据 train.txt 存在且含有效框
+      "CLS"     -> 要求统一 train 已有图（分类器复用其框做 ROI 裁剪）
+      "DATA"    -> 跳过校验（该阶段正是生成数据）
+      "CONVERT" -> 要求已训练检测模型（weights/MERGED）与统一数据均存在
 
     返回 (ok, reason)；ok=False 时 reason 为阻断原因（供 UI 直接展示）。
     """
@@ -154,6 +155,17 @@ def validate_for_training(kind: str = "YOLO") -> Tuple[bool, str]:
 
     if kind == "DATA":
         log.info("[datacheck] kind=DATA 跳过校验（该阶段正用于生成数据），直接放行")
+        return True, ""
+
+    if kind == "CONVERT":
+        wpath = os.path.join(_ML_ROOT, "weights", "MERGED", "best_epoch_weights.pth")
+        if not os.path.exists(wpath):
+            log.warning("[datacheck] 阻断转换: 未找到已训练检测模型 %s", wpath)
+            return False, "未找到已训练检测模型（weights/MERGED/best_epoch_weights.pth），请先运行「② 训练检测模型」"
+        if not has_train:
+            log.warning("[datacheck] 阻断转换: train.txt 无图片 (kind=%s)", kind)
+            return False, "尚未生成统一数据（train.txt 无图），请先运行「① 生成统一标注」"
+        log.debug("[datacheck] CONVERT 校验通过: 权重存在 + 有训练图")
         return True, ""
 
     if not has_train:

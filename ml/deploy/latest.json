@@ -1,14 +1,12 @@
 {
-  "ts": "2026-08-25 15:35:00",
+  "ts": "2026-08-28 11:56:19",
   "source_dir": "d:\\Aging\\ml\\weights\\MERGED",
   "files": [
     "yolo_best_deploy.pt",
     "yolo_best_epoch_weights.pth",
     "tinyconv_best.pth",
     "label_merged.txt",
-    "yolo_ptq_int8.onnx",
     "yolo_ptq_int8_dyn.onnx",
-    "yolo_ptq_int8_320.onnx",
     "yolo_ptq_int8_320_dyn.onnx"
   ],
   "paths": {
@@ -16,15 +14,15 @@
     "weights": "d:\\Aging\\ml\\deploy\\yolo_best_epoch_weights.pth",
     "classifier": "d:\\Aging\\ml\\deploy\\tinyconv_best.pth",
     "labels": "d:\\Aging\\ml\\deploy\\label_merged.txt",
-    "onnx": "d:\\Aging\\ml\\deploy\\yolo_ptq_int8_dyn.onnx",
-    "onnx_mon": "d:\\Aging\\ml\\deploy\\yolo_ptq_int8_320_dyn.onnx",
-    "manifest": "d:\\Aging\\ml\\deploy\\latest.json"
+    "manifest": "d:\\Aging\\ml\\deploy\\latest.json",
+    "onnx": "D:\\Aging\\ml\\deploy\\yolo_ptq_int8_dyn.onnx",
+    "onnx_mon": "D:\\Aging\\ml\\deploy\\yolo_ptq_int8_320_dyn.onnx"
   },
   "onnx": {
     "interactive": "yolo_ptq_int8_dyn.onnx (512x512, 5376 anc, INT8)",
     "monitor": "yolo_ptq_int8_320_dyn.onnx (320x320, 2100 anc, INT8)",
-    "monitor_fps_batch54_gpu": 397.0,
+    "monitor_fps_batch54_gpu": 381.0,
     "target_fps_54ch": 216.0,
-    "headroom_x": 1.84
+    "headroom_x": 1.7638888888888888
   }
 }

@@ -558,7 +558,8 @@ TRAIN_BTN_GENDATA = "① 生成统一标注"
 TRAIN_BTN_TRAIN_YOLO = "② 训练检测模型"
 TRAIN_BTN_MERGE_ROI = "③ 合并亮灭数据"
 TRAIN_BTN_TRAIN_CLS = "④ 训练分类器"
-TRAIN_BTN_ONECLICK = "▶ 一键完整流程"
+TRAIN_BTN_CONVERT = "⑤ 量化转换模型"
+TRAIN_BTN_ONECLICK = "▶ 一键完整流程（含量化）"
 TRAIN_BTN_STOP = "■ 停止"
 TRAIN_BTN_ADVANCED = "高级·单步 ▼"
 TRAIN_HINT_RUNNING = "任务运行中，请勿重复启动…"
@@ -578,6 +579,7 @@ TRAIN_STAGE_NAMES = {
     "YOLO": "训练检测模型",
     "ROI": "合并亮灭数据",
     "CLS": "训练分类器",
+    "CONVERT": "量化转换模型",
 }
 TRAIN_STATUS_STAGE = "阶段：{stage}"
 TRAIN_STATUS_BUSY = "运行中… {elapsed}"
