@@ -2120,6 +2120,49 @@ QPushButton#passwordConfirm {{
 QPushButton#passwordConfirm:hover {{
     color: {c.BG_DEEP};
     background-color: {c.BORDER_PRIMARY};
+}}
+
+QFrame#settingsLockOverlay {{
+    background-color: {rgba(c.BG_DEEP, 214)};
+    border: none;
+    border-radius: 0px;
+}}
+
+QFrame#settingsLockBox {{
+    background-color: {c.BG_BASE};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: {s.RADIUS_LG}px;
+}}
+
+QLabel#settingsLockTitle {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_TITLE};
+    font-size: {fs.PANEL_TITLE}pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+    background: transparent;
+}}
+
+QLabel#settingsLockHint {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    background: transparent;
+}}
+
+QPushButton#settingsLockVerify {{
+    color: {c.TEXT_NEON_CYAN};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: {s.RADIUS_MD}px;
+    padding: 6px 22px;
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+    font-weight: bold;
+    background-color: {rgba(c.BORDER_PRIMARY, 18)};
+}}
+QPushButton#settingsLockVerify:hover {{
+    color: {c.BG_DEEP};
+    background-color: {c.BORDER_PRIMARY};
 }}"""
 
 

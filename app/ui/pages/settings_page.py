@@ -1,16 +1,19 @@
-"""系统设置页：老化时长 + 电流单元分组(3×2) + 摄像头绑定（会话内存）。
+"""系统设置页：访问密码 + 老化时长 + 电流单元分组(3×2) + 摄像头绑定。
 
-- 老化时长：全局默认 2h，可修改（仅会话生效，不落盘）。
+- 访问密码：进入需验证；页面内可修改/恢复默认（持久化）。
+- 老化时长：全局默认，可修改并持久化（重启保留），修改后热加载全局运行中倒计时。
 - 电流单元分组：每 6 个 CH 绑定一台电流 ESP32，按 3 行 × 2 列布局。
 - 摄像头绑定：每个 CH 位点绑定一台 ESP32 摄像头。
+- 空闲超时锁定：停留无操作超时自动锁定，需重新验证密码（遮罩 + 密码框）。
 
 所有设置由 `settings_changed` 信号在会话内通知其它页面刷新。
 文案一律来自 labels；视觉量来自 QSS 模板（tokens），本文件无裸 hex/字号。
 """
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QEvent, QTimer, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QApplication,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -25,12 +28,14 @@ from PyQt5.QtWidgets import (
 
 from app.core import config, labels
 from app.core.tokens import DEFAULT_TOKENS
-from app.observability import narrative
+from app.observability import get_logger, narrative
 from app.services import aging_settings as aging_svc
 from app.services import settings_access as access_svc
 from app.services.binding import get_binding
+from app.ui.dialogs import PasswordDialog
 
 _S = DEFAULT_TOKENS.sizing
+_log = get_logger("app.ui.pages.settings_page")
 
 
 class SettingsPage(QWidget):
@@ -54,6 +59,7 @@ class SettingsPage(QWidget):
         self._unit_edits: dict[int, QLineEdit] = {}
 
         self._build_ui()
+        self._build_idle_lock()
         self._load_current_values()
 
     # -- 页面骨架 -----------------------------------------------------------
@@ -371,3 +377,111 @@ class SettingsPage(QWidget):
 
     def _on_binding_changed(self) -> None:
         self.settings_changed.emit()
+
+    # -- 空闲超时自动锁定 ----------------------------------------------------
+    # 活动判定：点击 / 双击 / 键盘 / 滚轮（移动鼠标不单独计活动，防挂机）
+    _IDLE_ACTIVE_EVENTS = (
+        QEvent.MouseButtonPress,
+        QEvent.MouseButtonDblClick,
+        QEvent.KeyPress,
+        QEvent.Wheel,
+    )
+
+    def _build_idle_lock(self) -> None:
+        """空闲超时锁定：全页遮罩 + 重新验证按钮 + 空闲计时器。"""
+        self._idle_timer = QTimer(self)
+        self._idle_timer.setSingleShot(True)
+        self._idle_timer.setInterval(config.SETTINGS_IDLE_LOCK_MS)
+        self._idle_timer.timeout.connect(self._on_idle_timeout)
+        # 全局事件过滤：仅当本页可见且未锁定时，页面内活动重置计时
+        QApplication.instance().installEventFilter(self)
+
+        self._lock_overlay = QFrame(self)
+        self._lock_overlay.setObjectName("settingsLockOverlay")
+        ol = QVBoxLayout(self._lock_overlay)
+        ol.setContentsMargins(0, 0, 0, 0)
+        ol.setSpacing(0)
+        ol.addStretch(1)
+        box = QWidget()
+        box.setObjectName("settingsLockBox")
+        bl = QVBoxLayout(box)
+        bl.setContentsMargins(28, 24, 28, 24)
+        bl.setSpacing(12)
+        lock_title = QLabel(labels.SETTINGS_IDLE_LOCK_TITLE)
+        lock_title.setObjectName("settingsLockTitle")
+        lock_title.setAlignment(Qt.AlignCenter)
+        lock_hint = QLabel(labels.SETTINGS_IDLE_LOCK_HINT)
+        lock_hint.setObjectName("settingsLockHint")
+        lock_hint.setAlignment(Qt.AlignCenter)
+        lock_hint.setWordWrap(True)
+        verify_btn = QPushButton(labels.SETTINGS_IDLE_LOCK_VERIFY)
+        verify_btn.setObjectName("settingsLockVerify")
+        verify_btn.setCursor(Qt.PointingHandCursor)
+        verify_btn.clicked.connect(self._request_relock)
+        bl.addWidget(lock_title)
+        bl.addWidget(lock_hint)
+        bl.addWidget(verify_btn, 0, Qt.AlignHCenter)
+        ol.addWidget(box, 0, Qt.AlignHCenter)
+        ol.addStretch(1)
+        self._lock_overlay.hide()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._kick_idle_timer()
+
+    def hideEvent(self, event) -> None:
+        super().hideEvent(event)
+        self._idle_timer.stop()
+        self._lock_overlay.hide()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if getattr(self, "_lock_overlay", None) is not None:
+            self._lock_overlay.setGeometry(self.rect())
+
+    def eventFilter(self, obj, event) -> bool:
+        """页面内活动（点击/按键/滚轮）重置空闲计时；锁定态忽略。"""
+        if (self.isVisible()
+                and not self._lock_overlay.isVisible()
+                and isinstance(obj, QWidget)
+                and event.type() in self._IDLE_ACTIVE_EVENTS
+                and (obj is self or self.isAncestorOf(obj))):
+            self._kick_idle_timer()
+        return super().eventFilter(obj, event)
+
+    def _kick_idle_timer(self) -> None:
+        if not self._lock_overlay.isVisible():
+            self._idle_timer.start()
+
+    def _show_lock_overlay(self) -> None:
+        self._lock_overlay.setGeometry(self.rect())
+        self._lock_overlay.raise_()
+        self._lock_overlay.show()
+
+    def _on_idle_timeout(self) -> None:
+        """空闲超时：锁定设置页并弹密码框重新验证。"""
+        if self._lock_overlay.isVisible():
+            return
+        narrative.event("settings_idle_locked", note=labels.SETTINGS_IDLE_LOCK_HINT)
+        _log.info("settings page idle lock triggered")
+        self._show_lock_overlay()
+        # 取消则保持遮罩锁定，等待点击"重新验证"
+        self._request_relock()
+
+    def _request_relock(self) -> None:
+        """弹出密码框重新验证；通过则解锁遮罩并重置计时。"""
+        ok = PasswordDialog.request(
+            self,
+            verify=self._access.verify,
+            title=labels.SETTINGS_IDLE_LOCK_TITLE,
+            hint=labels.SETTINGS_IDLE_LOCK_HINT,
+            confirm_label=labels.SETTINGS_LOCK_CONFIRM,
+            cancel_label=labels.SETTINGS_LOCK_CANCEL,
+            error_text=labels.SETTINGS_LOCK_ERROR,
+        )
+        if ok:
+            self._lock_overlay.hide()
+            narrative.event("settings_idle_unlocked",
+                            note=labels.SETTINGS_IDLE_LOCK_UNLOCKED)
+            _log.info("settings idle unlock passed")
+            self._kick_idle_timer()
