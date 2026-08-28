@@ -40,6 +40,8 @@ from pyqtgraph import Vector
 from app.core import config, labels
 from app.core.tokens import DEFAULT_TOKENS
 from app.observability import get_logger, narrative, set_exception_handler, log_message_emitted, LogLevel
+from app.services.settings_access import get_settings_access
+from app.ui.dialogs import PasswordDialog
 from app.ui.floaters import (
     RightAlertsFloater,
     BottomRightHUDFloater,
@@ -472,8 +474,33 @@ class HomePage(QMainWindow):
 
     # -- slots -----------------------------------------------------------------
     def _on_nav(self, key: str) -> None:
-        """nav 按钮点击 → 路由切换。"""
+        """nav 按钮点击 → 路由切换（设置页需先通过密码门禁）。"""
+        if key == "settings" and not self._request_settings_access():
+            return
         self._router.navigate(key)
+
+    def _request_settings_access(self) -> bool:
+        """设置页密码门禁：每次进入均需验证密码（无会话免密窗口）。
+
+        密码错误时对话框内停留重试（PasswordDialog.request 内循环），
+        取消则放弃进入设置页。
+        """
+        svc = get_settings_access()
+        hint = (labels.SETTINGS_LOCK_HINT_DEFAULT
+                if svc.is_default_password() else labels.SETTINGS_LOCK_HINT)
+        ok = PasswordDialog.request(
+            self,
+            verify=svc.verify,
+            title=labels.SETTINGS_LOCK_TITLE,
+            hint=hint,
+            confirm_label=labels.SETTINGS_LOCK_CONFIRM,
+            cancel_label=labels.SETTINGS_LOCK_CANCEL,
+            error_text=labels.SETTINGS_LOCK_ERROR,
+        )
+        if ok:
+            narrative.event("settings_access_passed", note="设置页密码验证通过")
+            _log.info("settings gate passed")
+        return ok
 
     def _on_page_changed(self, key: str) -> None:
         """页面切换：状态栏提示。"""

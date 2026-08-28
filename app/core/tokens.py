@@ -377,6 +377,11 @@ class Sizing:
     ANNOT_ZOOM_PCT_DEFAULT: int = 50  # 画布角标初始缩放百分比（占位展示）
     ANNOT_ZOOM_PCT_SCALE: int = 100   # 缩放比例(0~1)→百分比换算系数
 
+    # ---- 设置访问密码对话框 --------------------------------------------------
+    PASSWORD_DIALOG_MARGIN_H: int = 18   # 密码框左右内边距
+    PASSWORD_DIALOG_MARGIN_V: int = 16   # 密码框上下内边距
+    PASSWORD_DIALOG_SPACING: int = 10    # 密码框子项间距
+
     # ---- 数据训练 · 超参数面板（Phase 3）-----------------------------------
     TRAIN_PARAM_GAP: int = 8          # 参数项间距
     TRAIN_LOG_MIN_H: int = 260        # 日志区最小高度

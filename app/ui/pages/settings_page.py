@@ -27,6 +27,7 @@ from app.core import config, labels
 from app.core.tokens import DEFAULT_TOKENS
 from app.observability import narrative
 from app.services import aging_settings as aging_svc
+from app.services import settings_access as access_svc
 from app.services.binding import get_binding
 
 _S = DEFAULT_TOKENS.sizing
@@ -43,9 +44,11 @@ class SettingsPage(QWidget):
         # 会话级服务（懒加载单例）
         self._aging = aging_svc.get_aging_settings(self)
         self._binding = get_binding(self)
+        self._access = access_svc.get_settings_access(self)
 
         self._aging.changed.connect(self._on_binding_changed)
         self._binding.changed.connect(self._on_binding_changed)
+        self._access.password_changed.connect(self._refresh_pw_hint)
 
         self._camera_edits: dict[int, QLineEdit] = {}
         self._unit_edits: dict[int, QLineEdit] = {}
@@ -88,6 +91,7 @@ class SettingsPage(QWidget):
         scroll.setWidget(body)
         root.addWidget(scroll, 1)
 
+        self._build_password_card(self._body_layout)
         self._build_aging_card(self._body_layout)
         self._build_units_card(self._body_layout)
         self._build_cameras_card(self._body_layout)
@@ -108,11 +112,101 @@ class SettingsPage(QWidget):
         lay.addWidget(h)
         return card, lay
 
-    # -- ① 老化倒计时 -------------------------------------------------------
+    # -- ① 设置访问密码 -------------------------------------------------------
+    def _build_password_card(self, parent: QVBoxLayout) -> None:
+        card, lay = self._make_card(
+            labels.SETTINGS_PASSWORD_TITLE,
+            labels.SETTINGS_PASSWORD_HINT,
+        )
+        self._pw_fields: dict[str, QLineEdit] = {}
+        for key, label_text in (
+            ("current", labels.SETTINGS_PASSWORD_CURRENT),
+            ("new", labels.SETTINGS_PASSWORD_NEW),
+            ("confirm", labels.SETTINGS_PASSWORD_CONFIRM),
+        ):
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            lab = QLabel(label_text)
+            lab.setObjectName("settingsFieldLabel")
+            edit = QLineEdit()
+            edit.setObjectName("settingsEdit")
+            edit.setEchoMode(QLineEdit.Password)
+            edit.setCursor(Qt.IBeamCursor)
+            self._pw_fields[key] = edit
+            row.addWidget(lab)
+            row.addWidget(edit, 1)
+            lay.addLayout(row)
+        btns = QHBoxLayout()
+        btns.setSpacing(10)
+        apply_btn = QPushButton(labels.SETTINGS_PASSWORD_APPLY)
+        apply_btn.setObjectName("settingsApply")
+        apply_btn.setCursor(Qt.PointingHandCursor)
+        apply_btn.clicked.connect(self._apply_password)
+        reset_btn = QPushButton(labels.SETTINGS_PASSWORD_RESET)
+        reset_btn.setObjectName("settingsReset")
+        reset_btn.setCursor(Qt.PointingHandCursor)
+        reset_btn.clicked.connect(self._reset_password)
+        btns.addWidget(apply_btn)
+        btns.addWidget(reset_btn)
+        btns.addStretch(1)
+        lay.addLayout(btns)
+        self._pw_status = QLabel("")
+        self._pw_status.setObjectName("settingsPwStatus")
+        self._pw_status.setProperty("err", False)
+        lay.addWidget(self._pw_status)
+        parent.addWidget(card)
+
+    def _apply_password(self) -> None:
+        current = self._pw_fields["current"].text()
+        new = self._pw_fields["new"].text()
+        confirm = self._pw_fields["confirm"].text()
+        if not current or not new or not confirm:
+            self._set_pw_status(labels.SETTINGS_PASSWORD_FILL_ALL, err=True)
+            return
+        err = self._access.change_password(current, new, confirm)
+        if err == access_svc.ERR_WRONG_CURRENT:
+            self._set_pw_status(labels.SETTINGS_PASSWORD_ERR_WRONG_CURRENT, err=True)
+        elif err == access_svc.ERR_TOO_SHORT:
+            self._set_pw_status(labels.SETTINGS_PASSWORD_ERR_TOO_SHORT, err=True)
+        elif err == access_svc.ERR_MISMATCH:
+            self._set_pw_status(labels.SETTINGS_PASSWORD_ERR_MISMATCH, err=True)
+        else:
+            self._clear_pw_fields()
+            self._set_pw_status(labels.SETTINGS_PASSWORD_APPLIED, err=False)
+            narrative.event("settings_password_changed",
+                            note=labels.SETTINGS_PASSWORD_APPLIED)
+
+    def _reset_password(self) -> None:
+        self._access.reset_password()
+        self._clear_pw_fields()
+        self._set_pw_status(labels.SETTINGS_PASSWORD_RESET_DONE, err=False)
+        narrative.event("settings_password_reset",
+                        note=labels.SETTINGS_PASSWORD_RESET_DONE)
+
+    def _clear_pw_fields(self) -> None:
+        for edit in self._pw_fields.values():
+            edit.clear()
+
+    def _set_pw_status(self, text: str, err: bool) -> None:
+        self._pw_status.setText(text)
+        self._pw_status.setProperty("err", err)
+        self._pw_status.style().unpolish(self._pw_status)
+        self._pw_status.style().polish(self._pw_status)
+
+    def _refresh_pw_hint(self) -> None:
+        """密码被修改/重置后刷新提示（默认密码则警告）。"""
+        if self._access.is_default_password():
+            self._set_pw_status(labels.SETTINGS_PASSWORD_IS_DEFAULT, err=True)
+        else:
+            self._pw_status.setText("")
+            self._pw_status.setProperty("err", False)
+
+    # -- ② 老化倒计时 -------------------------------------------------------
     def _build_aging_card(self, parent: QVBoxLayout) -> None:
         card, lay = self._make_card(
             labels.SETTINGS_AGING_TITLE,
-            labels.SETTINGS_AGING_DEFAULT_HINT_TEMPLATE.format(hours=2),
+            labels.SETTINGS_AGING_DEFAULT_HINT_TEMPLATE.format(
+                hours=aging_svc.DEFAULT_AGING_SECONDS // 3600),
         )
         row = QHBoxLayout()
         row.setSpacing(10)
@@ -122,7 +216,7 @@ class SettingsPage(QWidget):
         self._aging_spin.setObjectName("settingsSpin")
         self._aging_spin.setRange(aging_svc.MIN_AGING_SECONDS // 60,
                                   aging_svc.MAX_AGING_SECONDS // 60)
-        self._aging_spin.setSuffix(" 分钟")
+        self._aging_spin.setSuffix(labels.SETTINGS_AGING_SPIN_SUFFIX)
         apply_btn = QPushButton(labels.SETTINGS_AGING_APPLY)
         apply_btn.setObjectName("settingsApply")
         apply_btn.setCursor(Qt.PointingHandCursor)
@@ -143,27 +237,29 @@ class SettingsPage(QWidget):
         lay.addWidget(self._aging_status)
         parent.addWidget(card)
 
+    @staticmethod
+    def _fmt_h_m(seconds: int) -> tuple[int, int]:
+        h, rem = divmod(int(seconds), 3600)
+        return h, rem // 60
+
     def _apply_aging(self) -> None:
         minutes = self._aging_spin.value()
         seconds = minutes * 60
-        if seconds != self._aging.aging_seconds:
-            narrative.event(
-                "aging_duration_applied",
-                note=labels.SETTINGS_AGING_APPLIED.format(
-                    minutes=minutes, hours=minutes / 60),
-            )
+        h, m = self._fmt_h_m(seconds)
         self._aging.set_aging_seconds(seconds)
+        text = labels.SETTINGS_AGING_APPLIED.format(minutes=minutes, hours=h, mins=m)
+        self._aging_status.setText(text)
+        narrative.event("aging_duration_applied", note=text)
 
     def _reset_aging(self) -> None:
         self._aging.reset()
-        self._aging_spin.setValue(
-            aging_svc.DEFAULT_AGING_SECONDS // 60)
-        narrative.event(
-            "aging_duration_reset",
-            note=labels.SETTINGS_AGING_RESET_DONE.format(hours=2),
-        )
+        self._aging_spin.setValue(aging_svc.DEFAULT_AGING_SECONDS // 60)
+        h, _m = self._fmt_h_m(aging_svc.DEFAULT_AGING_SECONDS)
+        text = labels.SETTINGS_AGING_RESET_DONE.format(hours=h)
+        self._aging_status.setText(text)
+        narrative.event("aging_duration_reset", note=text)
 
-    # -- ② 电流单元分组（3×2） ----------------------------------------------
+    # -- ③ 电流单元分组（3×2） ----------------------------------------------
     def _build_units_card(self, parent: QVBoxLayout) -> None:
         units_view = self._binding.each_unit()
         card, lay = self._make_card(
@@ -210,7 +306,7 @@ class SettingsPage(QWidget):
         narrative.event("binding_units_reset",
                         note=labels.SETTINGS_RESET_ALL_UNITS_DONE)
 
-    # -- ③ 摄像头绑定（每 CH 一台） -----------------------------------------
+    # -- ④ 摄像头绑定（每 CH 一台） -----------------------------------------
     def _build_cameras_card(self, parent: QVBoxLayout) -> None:
         rows, cols = config.GRID_ROWS, config.GRID_COLS
         card, lay = self._make_card(
@@ -260,6 +356,14 @@ class SettingsPage(QWidget):
     # -- 值读写 / 联动 ------------------------------------------------------
     def _load_current_values(self) -> None:
         self._aging_spin.setValue(self._aging.aging_seconds // 60)
+        # 回显当前生效老化时长
+        current = self._aging.aging_seconds
+        h, m = self._fmt_h_m(current)
+        self._aging_status.setText(
+            labels.SETTINGS_AGING_APPLIED.format(
+                minutes=current // 60, hours=h, mins=m))
+        # 默认密码则提示尽快修改
+        self._refresh_pw_hint()
         for idx, edit in self._unit_edits.items():
             edit.setText(self._binding.unit_id(idx))
         for cid, edit in self._camera_edits.items():

@@ -358,18 +358,43 @@ CELL_MONITOR_DONE = "✓"
 CELL_MONITOR_ERROR = "✗"
 
 
-# ---- 系统设置页（设备绑定 + 老化时长）---------------------------------------
+# ---- 系统设置页（设备绑定 + 老化时长 + 访问密码）-------------------------------
 SETTINGS_PAGE_TITLE = "⚙ 系统设置  //  SYSTEM SETTINGS"
-SETTINGS_PAGE_HINT = "所有设置为会话内存，重启自动恢复默认（不落盘）"
+SETTINGS_PAGE_HINT = "密码与老化时长持久化（重启保留）；设备绑定为会话内存"
 
 # 老化倒计时全局设置
 SETTINGS_AGING_TITLE = "老化倒计时  //  AGING COUNTDOWN"
-SETTINGS_AGING_DEFAULT_HINT_TEMPLATE = "全局默认 {hours} 小时，可修改本轮老化倒计时时长"
+SETTINGS_AGING_DEFAULT_HINT_TEMPLATE = "全局默认 {hours} 小时，修改后持久化（重启保留），作为新一轮老化倒计时时长"
 SETTINGS_AGING_LABEL = "老化时长（分钟）"
+SETTINGS_AGING_SPIN_SUFFIX = " 分钟"
 SETTINGS_AGING_APPLY = "应用"
 SETTINGS_AGING_RESET = "恢复默认"
-SETTINGS_AGING_APPLIED = "已应用老化时长：{minutes} 分钟（{hours} 小时）"
+SETTINGS_AGING_APPLIED = "已应用老化时长：{minutes} 分钟（{hours} 小时 {mins} 分）"
 SETTINGS_AGING_RESET_DONE = "已恢复默认老化时长：{hours} 小时"
+
+# 设置访问安全门禁
+SETTINGS_LOCK_TITLE = "设置访问验证"
+SETTINGS_LOCK_HINT = "进入系统设置需验证密码"
+SETTINGS_LOCK_HINT_DEFAULT = "当前为默认密码，进入后建议立即修改"
+SETTINGS_LOCK_CONFIRM = "进入"
+SETTINGS_LOCK_CANCEL = "取消"
+SETTINGS_LOCK_ERROR = "密码错误，请重试"
+
+SETTINGS_PASSWORD_TITLE = "设置访问密码  //  ACCESS PASSWORD"
+SETTINGS_PASSWORD_HINT = "进入系统设置需验证密码；默认密码 admin123，建议修改"
+SETTINGS_PASSWORD_CURRENT = "当前密码"
+SETTINGS_PASSWORD_NEW = "新密码"
+SETTINGS_PASSWORD_CONFIRM = "确认新密码"
+SETTINGS_PASSWORD_APPLY = "修改密码"
+SETTINGS_PASSWORD_RESET = "恢复默认密码"
+SETTINGS_PASSWORD_APPLIED = "密码已更新"
+SETTINGS_PASSWORD_RESET_DONE = "已恢复默认密码 admin123"
+SETTINGS_PASSWORD_IS_DEFAULT = "⚠ 当前为默认密码，建议尽快修改"
+SETTINGS_PASSWORD_FILL_ALL = "请填写完整（当前密码 / 新密码 / 确认新密码）"
+SETTINGS_PASSWORD_ERR_WRONG_CURRENT = "当前密码不正确"
+SETTINGS_PASSWORD_ERR_TOO_SHORT = "新密码至少 6 位"
+SETTINGS_PASSWORD_ERR_MISMATCH = "两次输入的新密码不一致"
+SETTINGS_PASSWORD_PLACEHOLDER = "••••••"
 
 # 电流单元分组（每 6 CH 一组，3×2 布局）
 SETTINGS_CURRENT_UNIT_TITLE = "电流单元分组  //  CURRENT UNITS (3×2)"

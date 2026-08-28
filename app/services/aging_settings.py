@@ -1,8 +1,9 @@
-"""老化倒计时全局设置（会话内存，不落盘，重启即恢复默认）。
+"""老化倒计时全局设置（用户覆盖值持久化，重启保留）。
 
 业务语义（来自用户澄清）：
 - 全局默认老化时长 **2 小时**，用户可在设置页修改倒计时时长。
-- 仅会话内存生效，重启恢复默认 2h。
+- 用户覆盖值持久化到本地文件（settings_store），重启保留；
+  未覆盖时返回默认 2h。
 
 设计：
 - 纯业务，可脱离 GUI 单测；会话内单例（`get_aging_settings()`）。
@@ -12,6 +13,11 @@
 from __future__ import annotations
 
 from PyQt5.QtCore import QObject, pyqtSignal
+
+from app.observability import get_logger
+from app.services.settings_store import get_settings_store
+
+_log = get_logger("app.services.aging_settings")
 
 # 默认老化时长（秒）：2 小时
 DEFAULT_AGING_SECONDS = 2 * 60 * 60
@@ -25,13 +31,16 @@ _AGING_SESSION: "AgingSettings | None" = None
 
 
 class AgingSettings(QObject):
-    """会话级老化倒计时全局设置。"""
+    """会话级老化倒计时全局设置（用户覆盖值持久化）。"""
 
     changed = pyqtSignal()
 
     def __init__(self, parent: "QObject | None" = None) -> None:
         super().__init__(parent)
-        self._override_seconds: "int | None" = None
+        self._store = get_settings_store()
+        # 启动时从持久化恢复用户覆盖值（无记录则为 None → 默认 2h）
+        saved = self._store.get_aging_seconds()
+        self._override_seconds: "int | None" = saved if saved else None
 
     # -- 读写 ----------------------------------------------------------------
     @property
@@ -45,11 +54,13 @@ class AgingSettings(QObject):
             seconds = DEFAULT_AGING_SECONDS
         if self.aging_seconds != seconds:
             self._override_seconds = seconds
+            self._store.set_aging_seconds(seconds)  # 持久化（重启保留）
             self._emit_change()
 
     def reset(self) -> None:
         if self._override_seconds is not None:
             self._override_seconds = None
+            self._store.set_aging_seconds(None)  # 清除覆盖值 → 恢复默认
             self._emit_change()
 
     # -- 便捷格式化 ----------------------------------------------------------

@@ -180,6 +180,9 @@ class CurrentDetectionPage(QWidget):
         self._detector = AutoAgingDetector(parent=self)
         self._detector.triggered.connect(self._on_auto_triggered)
         self._countdown = CountdownService(parent=self)
+        # 默认老化时长热加载：设置页修改后实时 rescale 全局运行中倒计时
+        self._aging_svc = get_aging_settings()
+        self._aging_svc.changed.connect(self._on_aging_default_changed)
         # 接线
         self._source.batch_reading.connect(self._on_batch_reading)
         self._controller.state_changed.connect(self._on_state_changed)
@@ -292,6 +295,15 @@ class CurrentDetectionPage(QWidget):
             self._refresh_toolbar()
 
     # -- 老化自动检测（电流 0→稳定浮动 → 自动开始倒计时）-------------------
+    def _on_aging_default_changed(self) -> None:
+        """老化默认时长热加载：设置页修改后，实时 rescale 全局运行中倒计时。
+
+        已消耗时间保留（与详情页手动调整同一语义）；新启动的通道下次
+        _start_detection 时自然使用新默认值，无需在此处理。
+        """
+        total = self._aging_svc.aging_seconds
+        self._countdown.apply_default_duration(total)
+
     def _start_detection(self, cids) -> None:
         """把 cids 置为检测中并启动每 cell 老化倒计时（会话老化时长）。"""
         transitioned = self._controller.apply("start", cids)

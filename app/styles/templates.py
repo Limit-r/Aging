@@ -2031,6 +2031,95 @@ QPushButton#settingsReset {{
     color: {c.TEXT_SECONDARY};
     border-color: {c.BORDER_DARK_BLUE};
     background-color: transparent;
+}}
+
+QLabel#settingsPwStatus[err="true"] {{
+    color: {c.TEXT_DANGER};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    background: transparent;
+}}
+QLabel#settingsPwStatus[err="false"] {{
+    color: {c.TEXT_NEON_GREEN};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    background: transparent;
+}}"""
+
+
+# ---- 设置访问密码对话框 ---------------------------------------------------
+def password_dialog(t: DesignTokens) -> str:
+    """密码输入对话框（进入设置门禁 / 修改密码共用）。"""
+    c, fs, f, s = t.colors, t.font_sizes, t.fonts, t.sizing
+    return f"""
+QDialog#passwordDialog {{
+    background-color: {c.BG_DEEP};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: {s.RADIUS_LG}px;
+}}
+
+QLabel#passwordTitle {{
+    color: {c.TEXT_NEON_CYAN};
+    font-family: {f.FAMILY_TITLE};
+    font-size: {fs.PANEL_TITLE}pt;
+    font-weight: bold;
+    letter-spacing: 1px;
+    background: transparent;
+}}
+
+QLabel#passwordHint {{
+    color: {c.TEXT_DIM};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    background: transparent;
+}}
+
+QLineEdit#passwordEdit {{
+    color: {c.TEXT_PRIMARY};
+    background-color: {c.BG_BTN_BOTTOM};
+    border: 1px solid {c.BORDER_DARK_BLUE};
+    border-radius: {s.RADIUS_SM}px;
+    padding: 6px 10px;
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+}}
+QLineEdit#passwordEdit:focus {{ border-color: {c.BORDER_PRIMARY}; }}
+QLineEdit#passwordEdit:hover {{ border-color: {c.BORDER_HOVER}; }}
+
+QLabel#passwordError {{
+    color: {c.TEXT_DANGER};
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.XS}pt;
+    background: transparent;
+}}
+
+QPushButton#passwordCancel {{
+    color: {c.TEXT_SECONDARY};
+    border: 1px solid {c.BORDER_DARK_BLUE};
+    border-radius: {s.RADIUS_MD}px;
+    padding: 5px 16px;
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+    background-color: transparent;
+}}
+QPushButton#passwordCancel:hover {{
+    color: {c.TEXT_NEON_CYAN};
+    border-color: {c.BORDER_PRIMARY};
+}}
+
+QPushButton#passwordConfirm {{
+    color: {c.TEXT_NEON_CYAN};
+    border: 1px solid {c.BORDER_PRIMARY};
+    border-radius: {s.RADIUS_MD}px;
+    padding: 5px 16px;
+    font-family: {f.FAMILY_MONO};
+    font-size: {fs.MD}pt;
+    font-weight: bold;
+    background-color: {rgba(c.BORDER_PRIMARY, 18)};
+}}
+QPushButton#passwordConfirm:hover {{
+    color: {c.BG_DEEP};
+    background-color: {c.BORDER_PRIMARY};
 }}"""
 
 

@@ -174,6 +174,28 @@ class CountdownService(QObject):
             _log.debug("event=countdown_resumed cid=CH-%s remain_s=%s",
                        cid, self._entries.get(cid, {}).get("remain_s", 0))
 
+    def apply_default_duration(self, total_s: int) -> None:
+        """全局默认老化时长热加载：对所有运行中（含暂停）倒计时实时 rescale。
+
+        语义与 set_duration 一致：已消耗时间保留，新总时长 = max(已消耗+1, 新默认)。
+        - 时长未变化的通道跳过（幂等，避免无意义 ticked 刷新）
+        - idle/expired 通道无需处理：下次 start() 自然使用新默认值
+        """
+        if total_s <= 0:
+            return
+        total_s = int(total_s)
+        changed: list[int] = []
+        for cid in list(self._running_cids):
+            if self.total(cid) == total_s:
+                continue
+            self.set_duration(cid, total_s)
+            changed.append(cid)
+        if changed:
+            _log.info(
+                "event=countdown_hot_reload total_s=%s channels=%s",
+                total_s, [f"CH-{c:02d}" for c in changed],
+            )
+
     def set_duration(self, cid: int, new_total_s: int) -> None:
         """详情页 spinbox 调整：rescale 倒计时。
 
