@@ -423,7 +423,8 @@ class HomePage(QMainWindow):
         self._router.register("video_stream", self._video_stream_page)
         self._data_page = DataCenterPage()
         self._router.register("data", self._data_page)
-        self._router.register("settings", SettingsPage())
+        self._settings_page = SettingsPage()
+        self._router.register("settings", self._settings_page)
         self._router.register("detail", self._detail_page)
         # Phase 3：HomeDashboard 双击 → HomePage 路由切到 detail
         self._dashboard._on_open_detail_callback = self._on_open_detail
@@ -435,6 +436,8 @@ class HomePage(QMainWindow):
         self._video_page.open_stream_requested.connect(self._on_open_video_stream)
         self._video_stream_page.requested_back.connect(self._on_video_stream_back)
         self._video_stream_page.action_requested.connect(self._on_video_stream_action)
+        # 设置页空闲超时 → 自动返回系统主页面
+        self._settings_page.requested_back.connect(self._on_settings_idle_back)
         root.addWidget(self._router, 1)
 
         # 3) 底部状态栏
@@ -595,6 +598,11 @@ class HomePage(QMainWindow):
         self._current_page._apply_action_to_cids(action, [cid])
         _log.info("video stream action=%s cid=%d forwarded to full business path",
                   action, cid)
+
+    def _on_settings_idle_back(self) -> None:
+        """设置页空闲超时 → 自动返回系统主页面（home）。"""
+        self._router.navigate("home")
+        _log.info("settings idle timeout → back to home")
 
     def _on_detail_back(self) -> None:
         """详情页点"返回主页" → 路由回 home + 恢复 3D 旋转 + 恢复 azimuth。"""

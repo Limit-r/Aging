@@ -396,11 +396,8 @@ SETTINGS_PASSWORD_ERR_TOO_SHORT = "新密码至少 6 位"
 SETTINGS_PASSWORD_ERR_MISMATCH = "两次输入的新密码不一致"
 SETTINGS_PASSWORD_PLACEHOLDER = "••••••"
 
-# 设置页空闲超时自动锁定
-SETTINGS_IDLE_LOCK_TITLE = "设置已锁定"
-SETTINGS_IDLE_LOCK_HINT = "长时间无操作，请重新验证密码后继续"
-SETTINGS_IDLE_LOCK_VERIFY = "重新验证"
-SETTINGS_IDLE_LOCK_UNLOCKED = "已通过验证，继续操作"
+# 设置页空闲超时自动返回主页
+SETTINGS_IDLE_AUTOBACK_NOTE = "长时间无操作，已自动返回系统主页面"
 
 # 电流单元分组（每 6 CH 一组，3×2 布局）
 SETTINGS_CURRENT_UNIT_TITLE = "电流单元分组  //  CURRENT UNITS (3×2)"
