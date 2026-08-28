@@ -22,6 +22,7 @@ class ChannelVideoRegistry:
         self._paths: dict[int, str] = {}      # cid -> 视频路径
         self._monitored: set[int] = set()     # 静默监控中（且映射过视频）的 cid
         self._paused: set[int] = set()        # 电流页暂停的 cid（后续开流需继承）
+        self._current_running: set[int] = set()  # 电流检测正在运行/暂停的 cid
 
     # -- 视频路径 -----------------------------------------------------------
     def set_path(self, cid: int, path: str) -> None:
@@ -58,6 +59,19 @@ class ChannelVideoRegistry:
     def is_paused(self, cid: int) -> bool:
         """该通道的电流检测当前是否处于暂停。"""
         return int(cid) in self._paused
+
+    # -- 电流运行通道集合 -----------------------------------------------------
+    def set_current_running(self, cids: list) -> None:
+        """登记当前「电流检测运行/暂停」的通道全集（全量替换）。
+
+        作为「视频后台检测是否应随电流持续运行」的单一事实源：检测页切走/
+        关闭时，若该通道仍在此集合中，则保留后台检测流、只复位页面展示。
+        """
+        self._current_running = {int(c) for c in (cids or [])}
+
+    def current_running_cids(self) -> set:
+        """返回当前电流检测运行/暂停的通道集合（副本）。"""
+        return set(self._current_running)
 
     # -- 组合判定 ------------------------------------------------------------
     def auto_startable(self, cid: int) -> Optional[str]:
