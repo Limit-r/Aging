@@ -39,6 +39,7 @@ from app.services.auto_detector import AutoAgingDetector
 from app.services.cell_controller import CellController, DetectionState
 from app.services.cell_ui_manager import CellUIManager
 from app.services.countdown import CountdownService
+from app.services.current_recorder import CurrentRecorder
 from app.services.aging_settings import get_aging_settings
 from app.ui.vision_worker import get_vision_worker
 from app.widgets.cell_grid import CellGrid
@@ -180,12 +181,15 @@ class CurrentDetectionPage(QWidget):
         self._detector = AutoAgingDetector(parent=self)
         self._detector.triggered.connect(self._on_auto_triggered)
         self._countdown = CountdownService(parent=self)
+        # 电流·数据记录（报告体系 Phase 1：按设备老化会话落盘）
+        self._recorder = CurrentRecorder(parent=self)
         # 默认老化时长热加载：设置页修改后实时 rescale 全局运行中倒计时
         self._aging_svc = get_aging_settings()
         self._aging_svc.changed.connect(self._on_aging_default_changed)
         # 接线
         self._source.batch_reading.connect(self._on_batch_reading)
         self._controller.state_changed.connect(self._on_state_changed)
+        self._controller.state_changed.connect(self._on_state_for_record)
         self._build_ui()
         # demo 启动
         self._demo_start_initial_cells()
@@ -207,6 +211,11 @@ class CurrentDetectionPage(QWidget):
     @property
     def data_source(self) -> "DemoDataSource":
         return self._source
+
+    @property
+    def recorder(self) -> CurrentRecorder:
+        """电流数据记录服务（供 HomePage 退出时归档）。"""
+        return self._recorder
 
     @property
     def countdown_service(self) -> CountdownService:
@@ -254,6 +263,7 @@ class CurrentDetectionPage(QWidget):
         running_cids = self._source.get_running_cids()  # 双重保险
         for r in readings:
             self._buffer.append(r)
+            self._recorder.handle_reading(r)  # 报告落盘：仅运行中/未暂停设备写入
             cid = r.channel_id
             # 老化自动检测：电流 0→稳定浮动 判定，触发由 _on_auto_triggered 处理
             self._detector.feed(cid, r.currents)
@@ -293,6 +303,17 @@ class CurrentDetectionPage(QWidget):
         # 选区内的 cell 状态变化 → 同步刷新按钮启用/暂停-继续
         if self._grid.selection():
             self._refresh_toolbar()
+
+    def _on_state_for_record(self, cid: int, old_state: str, new_state: str) -> None:
+        """设备老化状态变化 → 电流记录状态边界（stopped→running 开档 / →stopped 归档）。"""
+        if old_state == "stopped" and new_state == "running":
+            self._recorder.start_session(cid)
+        elif new_state == "running":  # resume（paused→running）
+            self._recorder.resume_session(cid)
+        elif new_state == "paused":   # running→paused 暂停写入
+            self._recorder.pause_session(cid)
+        elif new_state == "stopped":  # →stopped 结束并归档
+            self._recorder.end_session(cid)
 
     # -- 老化自动检测（电流 0→稳定浮动 → 自动开始倒计时）-------------------
     def _on_aging_default_changed(self) -> None:

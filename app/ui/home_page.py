@@ -686,4 +686,9 @@ class HomePage(QMainWindow):
             get_vision_worker().shutdown()
         except Exception as e:  # noqa: BLE001  退出阶段异常不阻塞关闭
             _log.warning("shutdown vision worker failed: %r", e)
+        # 电流数据记录：归档全部仍在写的老化会话，避免丢失尾部数据
+        try:
+            self._current_page.recorder.close()
+        except Exception as e:  # noqa: BLE001  退出阶段异常不阻塞关闭
+            _log.warning("close current recorder failed: %r", e)
         super().closeEvent(event)

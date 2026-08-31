@@ -207,7 +207,9 @@ class DataCenterPage(QWidget):
 
     # -- 三个页内容 -----------------------------------------------------------
     def _build_history_page(self) -> QWidget:
-        return self._build_placeholder_page(labels.DATA_TAB_HISTORY, labels.DATA_HISTORY_PLACEHOLDER)
+        """历史 / 趋势 / 导出 · 会话回看（电流记录落盘回放）。"""
+        from app.ui.pages.history_page import DetectionHistoryPage  # 懒加载，保持启动轻
+        return DetectionHistoryPage()
 
     # -- 训练 / 转换页 ----------------------------------------------------------
     def _build_train_page(self) -> QWidget:
@@ -931,22 +933,6 @@ class DataCenterPage(QWidget):
             phi=rec.phi, yep=rec.yolo_epochs, ybatch=rec.yolo_batch,
             cep=rec.cls_epochs, cbatch=rec.cls_batch))
         return "\n".join(lines)
-
-    def _build_placeholder_page(self, title: str, body: str) -> QWidget:
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        lay.setAlignment(Qt.AlignCenter)
-        accent = QLabel(f"// {title}")
-        accent.setObjectName("dcTabPlaceholderAccent")
-        text = QLabel(body)
-        text.setObjectName("dcTabPlaceholder")
-        text.setAlignment(Qt.AlignCenter)
-        text.setWordWrap(True)
-        lay.addWidget(accent, 0, Qt.AlignCenter)
-        lay.addSpacing(self._s.DATA_PLACEHOLDER_GAP)
-        lay.addWidget(text, 0, Qt.AlignCenter)
-        lay.addStretch(1)
-        return page
 
     # -- 数据标注页 ------------------------------------------------------------
     def _build_annotate_page(self) -> QWidget:

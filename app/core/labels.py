@@ -441,6 +441,17 @@ DATA_HISTORY_PLACEHOLDER = (
     "历史数据查询 / 趋势图 / 数据导出 / 报表生成将在后续阶段实现"
 )
 
+# 数据中心 · 历史 / 趋势 / 导出 · 会话回看
+HISTORY_LIST_TITLE = "检测会话"
+HISTORY_REFRESH = "刷新"
+HISTORY_EMPTY = ("暂无已落盘的检测会话。启动老化检测并使其运行一段时间后，"
+                 "检测数据会按设备写入 ml/detection_logs/，可在此回看。")
+HISTORY_SESSION_TEMPLATE = "{start}  ·  时长 {dur}  ·  {n} 条采样"
+HISTORY_DETAIL_TITLE_TEMPLATE = "{device} · {start} 电流 I-t 回看"
+HISTORY_META_TEMPLATE = "启动 {start}  ·  时长 {dur}  ·  采样 {n} 条  ·  session #{session}"
+HISTORY_NO_SELECTED = "从左侧选择一次会话，查看该设备电流曲线"
+HISTORY_INVALID_HINT = "灰显区段为该设备未上载/空置时段"
+
 # 数据标注页
 ANNOT_CATEGORY_LABEL = "类别"
 ANNOT_TOOL_LABEL = "工具"

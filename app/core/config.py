@@ -65,6 +65,9 @@ TRAIN_PROGRESS_PCT = 100     # 训练进度条满刻度百分比
 LED_FLASH_MS = 200             # 双击 LED → 详情页的视觉闪烁时长
 PAGE_CHANGED_STATUS_MS = 2000  # 页面切换时状态栏消息持续时长
 
+# ---- 电流/检测数据记录（报告体系 · 落盘目录） --------------------------------
+DETECTION_LOG_DIR = "ml/detection_logs"  # 相对仓库根；<CH-XX>/<启动墙钟>.bin
+
 # ---- 54 路静默集中监控（monitor）-------------------------------------------
 MONITOR_POLL_MS = 1000         # GUI 轮询 worker 聚合快照间隔
 MONITOR_MAX_VIDEOS = 54        # 一次最多监控路数
