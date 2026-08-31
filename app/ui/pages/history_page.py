@@ -16,7 +16,7 @@ import pyqtgraph as pg
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QPushButton, QSplitter, QVBoxLayout, QWidget,
+    QPushButton, QSizePolicy, QSplitter, QVBoxLayout, QWidget,
 )
 
 from app.core import config, labels
@@ -114,7 +114,46 @@ class DetectionHistoryPage(QWidget):
         self._meta.setObjectName("dcTrainHint")
         lay.addWidget(self._meta)
 
-        # 电流 I-t 曲线
+        # 详情分两个区块：电流 I-t 与状态灯（同为折线图），强制 1:1 平分。
+        # - 两个 block 显式 Expanding，让 splitter 在拉伸方向上对称扩张
+        # - 状态灯块目前只装提示文本（偏小），sizePolicy 不强制会按内容尺寸 → 撑不满
+        # - setSizes 在首次 showEvent 里执行，否则布局尚未就绪会被 splitter 忽略
+        self._detail_sizer = QSplitter(Qt.Vertical)
+        self._detail_sizer.setChildrenCollapsible(False)
+        current_block = self._build_current_block()
+        led_block = self._build_led_block()
+        for w in (current_block, led_block):
+            w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._detail_sizer.addWidget(current_block)
+        self._detail_sizer.addWidget(led_block)
+        self._detail_sizer.setStretchFactor(0, 1)
+        self._detail_sizer.setStretchFactor(1, 1)
+        lay.addWidget(self._detail_sizer, 1)
+        return pane
+
+    def showEvent(self, event) -> None:  # noqa: D401  Qt 事件钩子
+        """首次显示时把 splitter 强制 1:1 初始尺寸，绕过"按内容分配"的默认行为。"""
+        super().showEvent(event)
+        sizes = self._detail_sizer.sizes()
+        total = sum(sizes) or 1
+        if sizes and (sizes[0] != sizes[1]):
+            half = total // 2
+            self._detail_sizer.setSizes([half, total - half])
+
+    def _section_header(self, text: str) -> QLabel:
+        cap = QLabel(text)
+        cap.setObjectName("dcTrainSectionTitle")
+        return cap
+
+    def _build_current_block(self) -> QWidget:
+        """区块 1：电流 I-t 曲线。"""
+        frame = QFrame()
+        lay = QVBoxLayout(frame)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(self._s.DATA_PAGE_SPACING)
+
+        lay.addWidget(self._section_header(labels.HISTORY_CURRENT_SECTION))
+
         bg = DEFAULT_TOKENS.colors.RACK_3D_BG
         self._plot = pg.PlotWidget()
         self._plot.setObjectName("detailPlot")
@@ -123,16 +162,41 @@ class DetectionHistoryPage(QWidget):
         self._plot.setLabel("left", labels.CHART_CURRENT_Y_LABEL)
         self._plot.setLabel("bottom", labels.CHART_X_LABEL)
         for i in range(4):
-            c = self._plot.plot(
+            self._curves.append(self._plot.plot(
                 pen=pg.mkPen(
                     (_CURVE_COLORS[i][0], _CURVE_COLORS[i][1], _CURVE_COLORS[i][2]),
                     width=2,
                 ),
                 name=labels.CHART_LEGEND_CURRENT_NAMES[i],
-            )
-            self._curves.append(c)
+            ))
         lay.addWidget(self._plot, 1)
-        return pane
+        return frame
+
+    def _build_led_block(self) -> QWidget:
+        """区块 2：状态灯区。LED 逐秒记录落盘后在此绘制亮/灭方波，当前为占位。"""
+        frame = QFrame()
+        lay = QVBoxLayout(frame)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(self._s.DATA_PAGE_SPACING)
+
+        lay.addWidget(self._section_header(labels.HISTORY_LED_SECTION))
+
+        holder = QFrame()
+        holder.setObjectName("dcSidePanel")
+        hlay = QVBoxLayout(holder)
+        hlay.setContentsMargins(
+            self._s.DETAIL_HEADER_MARGIN_H, self._s.DATA_PAGE_SPACING,
+            self._s.DETAIL_HEADER_MARGIN_H, self._s.DATA_PAGE_SPACING,
+        )
+        hlay.addStretch(1)
+        pending = QLabel(labels.HISTORY_LED_PENDING)
+        pending.setObjectName("dcTrainHint")
+        pending.setWordWrap(True)
+        pending.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+        hlay.addWidget(pending, 0, Qt.AlignHCenter)
+        hlay.addStretch(1)
+        lay.addWidget(holder, 1)
+        return frame
 
     # -- 会话扫描 -----------------------------------------------------------
     def _rescan(self) -> None:

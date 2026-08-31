@@ -451,6 +451,11 @@ HISTORY_DETAIL_TITLE_TEMPLATE = "{device} · {start} 电流 I-t 回看"
 HISTORY_META_TEMPLATE = "启动 {start}  ·  时长 {dur}  ·  采样 {n} 条  ·  session #{session}"
 HISTORY_NO_SELECTED = "从左侧选择一次会话，查看该设备电流曲线"
 HISTORY_INVALID_HINT = "灰显区段为该设备未上载/空置时段"
+# 历史详情 · 双区块布局（电流 + 状态灯）
+HISTORY_CURRENT_SECTION = "电流 I-t"
+HISTORY_LED_SECTION = "状态灯"
+HISTORY_LED_PENDING = ("状态灯数据将在后续阶段（LED 逐秒记录落盘）实现后，"
+                       "在此显示该设备各通道的亮 / 灭方波")
 
 # 数据标注页
 ANNOT_CATEGORY_LABEL = "类别"
